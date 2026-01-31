@@ -1,37 +1,40 @@
-const bedrock = require('bedrock-protocol');
+const bedrock = require("bedrock-protocol");
 
+// === Налаштування бота ===
 const client = bedrock.createClient({
-  host: process.env.MC_HOST,
-  port: Number(process.env.MC_PORT),
-  username: process.env.MC_NAME,
-  offline: true // true, якщо це офлайн сервер або Aternos без Xbox
+  host: process.env.MC_HOST,        // ваш сервер
+  port: Number(process.env.MC_PORT),// порт
+  username: process.env.MC_NAME,    // ім'я бота
+  offline: true                      // offline-mode
 });
 
-client.on('join', () => {
-  console.log('✅ Bot joined the server');
+// === Події ===
+client.on("join", () => {
+  console.log("✅ Bot joined the server");
 
-  // Відправляємо тестове повідомлення через 2 секунди після входу
+  // Надсилаємо тестове повідомлення через 2 секунди
   setTimeout(() => {
-    client.write('text', {
-      type: 'chat',
+    const message = "Привіт! Це тестове повідомлення від бота.";
+    client.write("text", {
+      type: "chat",
       needs_translation: false,
       source_name: client.username,
-      message: "Привіт! Це тестове повідомлення від бота."
+      message: message
     });
-    console.log('💬 Повідомлення надіслано!');
+    console.log(`💬 Sent test message: ${message}`);
   }, 2000);
 });
 
-client.on('text', (packet) => {
-  const message = packet.message || packet.parameters?.[0];
-  const sender = packet.source_name;
-  console.log(`💬 ${sender}: ${message}`);
+client.on("text", (packet) => {
+  if (packet.type === "chat" && packet.source_name !== client.username) {
+    console.log(`💬 ${packet.source_name}: ${packet.message}`);
+  }
 });
 
-client.on('disconnect', reason => {
-  console.log('❌ Disconnected:', reason);
+client.on("disconnect", (reason) => {
+  console.log("❌ Disconnected:", reason);
 });
 
-client.on('error', err => {
-  console.error('💥 Bot error:', err);
+client.on("error", (err) => {
+  console.error("⚠️ Bedrock error:", err.message || err);
 });
