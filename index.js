@@ -24,6 +24,8 @@ client.on("error", (err) => {
 
 // ===== CHAT HANDLER =====
 client.on("text", async (packet) => {
+  console.log("📦 Text packet:", packet); // Дивимось що реально приходить
+
   if (packet.type !== "chat") return;
   if (!packet.source_name) return;
   if (packet.source_name === client.username) return;
@@ -31,18 +33,16 @@ client.on("text", async (packet) => {
   const message =
     packet.message ?? packet.parameters?.[1] ?? packet.parameters?.[0];
 
-  if (!message || typeof message !== "string") return;
-
-  console.log(`💬 ${packet.source_name}: ${message}`);
+  console.log("💬 Parsed message:", message);
 
   if (!message.startsWith("!ai ")) return;
 
   const prompt = message.slice(4).trim();
-  if (!prompt) return;
+  console.log("✏️ Prompt for AI:", prompt);
 
   const reply = await queryGemini(prompt);
+  console.log("🤖 AI reply:", reply);
 
-  // ✅ Правильна відправка
   client.chat(reply);
 });
 
@@ -88,3 +88,4 @@ async function queryGemini(prompt) {
     return "❌ Gemini error";
   }
 }
+
