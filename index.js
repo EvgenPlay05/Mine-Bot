@@ -1,5 +1,5 @@
 const bedrock = require('bedrock-protocol');
-const fetch = require('node-fetch');
+const axios = require('axios');
 
 const client = bedrock.createClient({
   host: process.env.MC_HOST,
@@ -8,47 +8,48 @@ const client = bedrock.createClient({
   offline: true
 });
 
-// --- Подія: при вході в сервер ---
+// Коли бот заходить
 client.on('join', () => {
   console.log('✅ Bot joined the server');
 });
 
-// --- Подія: відключення ---
+// Коли бот відключається
 client.on('disconnect', reason => {
   console.log('❌ Disconnected:', reason);
 });
 
-// --- Подія: чат ---
+// Чат
 client.on('text', async (packet) => {
   const message = packet.message;
   const sender = packet.name;
 
-  // Реагуємо тільки на команди, наприклад "!ai"
+  // Реагуємо тільки на команду !ai
   if (message.startsWith('!ai ')) {
     const prompt = message.replace('!ai ', '');
     console.log(`💬 ${sender}: ${prompt}`);
 
     try {
       const reply = await queryOpenAssistant(prompt);
-      client.chat(`${reply}`);
+      client.chat(`${sender}, ${reply}`);
     } catch (err) {
-      console.error('Error querying Open Assistant:', err);
-      client.chat('❌ Error: cannot get response from AI.');
+      console.error(err);
+      client.chat('❌ Error: cannot get AI response');
     }
   }
 });
 
-// --- Функція запиту до Open Assistant ---
+// --- Простий запит до Open Assistant ---
 async function queryOpenAssistant(prompt) {
-  const response = await fetch('https://api.open-assistant.io/message', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      input: prompt
-    })
+  const res = await axios.post('https://api.open-assistant.io/message', {
+    input: prompt
   });
-
-  const data = await response.json();
-  // Повертаємо текст відповіді
-  return data.output?.[0]?.content?.[0]?.text || "🤖 No response from AI";
+  
+  // Найпростіше діставання відповіді
+  if(res.data?.output && res.data.output[0]?.content) {
+    for(const c of res.data.output[0].content) {
+      if(c.type === 'text') return c.text;
+    }
+  }
+  
+  return '🤖 AI did not return a message';
 }
