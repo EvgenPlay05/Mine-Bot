@@ -1,5 +1,5 @@
-const bedrock = require('bedrock-protocol');
-const axios = require('axios');
+const bedrock = require("bedrock-protocol");
+const axios = require("axios");
 
 const client = bedrock.createClient({
   host: process.env.MC_HOST,
@@ -8,52 +8,56 @@ const client = bedrock.createClient({
   offline: true
 });
 
-client.on('join', () => {
-  console.log('✅ Bot joined the server');
+// ===== EVENTS =====
+
+client.on("join", () => {
+  console.log("✅ Bot joined the server");
 });
 
-client.on('disconnect', reason => {
-  console.log('❌ Disconnected:', reason);
+client.on("disconnect", (reason) => {
+  console.log("❌ Disconnected:", reason);
 });
 
-client.on('text', async (packet) => {
-  const message = packet.message || packet.parameters?.[0];
-  const sender = packet.source_name;
-  if (!message || !sender) return;
-
-  console.log(`💬 ${sender}: ${message}`);
-
-  if (message.startsWith('!ai ')) {
-    const prompt = message.slice(4).trim();
-    if (!prompt) return;
-
-    try {
-      const reply = await queryGemini(prompt);
-
-      client.write('text', {
-        type: 'chat',
-        needs_translation: false,
-        source_name: client.username,
-        message: `${sender}: ${reply || "🤖 ..."}`
-      });
-
-    } catch (err) {
-      console.error('❌ Gemini error:', err.response?.data || err.message);
-
-      client.write('text', {
-        type: 'chat',
-        needs_translation: false,
-        source_name: client.username,
-        message: '❌ AI error'
-      });
-    }
-  }
+client.on("error", (err) => {
+  console.error("⚠️ Bedrock error:", err.message || err);
 });
 
-// Google Gemini
+// ===== CHAT HANDLER =====
+
+client.on("text", async (packet) => {
+  if (packet.type !== "chat") return;
+  if (!packet.source_name) return;
+  if (packet.source_name === client.username) return;
+
+  const message =
+    packet.message ??
+    packet.parameters?.[1] ??
+    packet.parameters?.[0];
+
+  if (!message || typeof message !== "string") return;
+
+  console.log(`💬 ${packet.source_name}: ${message}`);
+
+  if (!message.startsWith("!ai ")) return;
+
+  const prompt = message.slice(4).trim();
+  if (!prompt) return;
+
+  const reply = await queryGemini(prompt);
+
+  client.write("text", {
+    type: "chat",
+    needs_translation: false,
+    source_name: client.username,
+    message: reply
+  });
+});
+
+// ===== GEMINI =====
+
 async function queryGemini(prompt) {
   const API_KEY = process.env.GOOGLE_API_KEY;
-  if (!API_KEY) return "❌ API key not set";
+  if (!API_KEY) return "❌ GOOGLE_API_KEY not set";
 
   const url =
     "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent";
@@ -82,12 +86,10 @@ async function queryGemini(prompt) {
       res.data?.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!text || typeof text !== "string") {
-      return "🤖 (empty response)";
+      return "🤖 (no response)";
     }
 
-    // Minecraft chat limit safety
-    return text.slice(0, 250);
-
+    return text.slice(0, 250); // safe for Minecraft chat
   } catch (e) {
     console.error("💥 Gemini failed:", e.response?.data || e.message);
     return "❌ Gemini error";
