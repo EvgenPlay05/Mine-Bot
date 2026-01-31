@@ -27,7 +27,7 @@ client.on('text', async (packet) => {
     const prompt = message.slice(4);
 
     try {
-      const reply = await queryHF(prompt);
+      const reply = await queryGemini(prompt);
 
       client.write('text', {
         type: 'chat',
@@ -37,7 +37,7 @@ client.on('text', async (packet) => {
       });
 
     } catch (err) {
-      console.error(err);
+      console.error('Gemini error:', err);
 
       client.write('text', {
         type: 'chat',
@@ -49,23 +49,25 @@ client.on('text', async (packet) => {
   }
 });
 
-// Hugging Face
-async function queryHF(prompt) {
-  const HF_TOKEN = process.env.HF_TOKEN;
-  const MODEL_URL = process.env.MODEL_URL; // <- змінна для вибору моделі
-
-  if (!MODEL_URL) throw new Error("MODEL_URL is not set!");
+// Google Gemini
+async function queryGemini(prompt) {
+  const API_KEY = process.env.GOOGLE_API_KEY; // твій ключ з Google AI Studio
 
   const res = await axios.post(
-    MODEL_URL,
-    { inputs: prompt },
+    'https://generativelanguage.googleapis.com/v1beta2/models/text-bison-001:generate',
+    {
+      prompt: { text: prompt },
+      temperature: 0.7,
+      maxOutputTokens: 512
+    },
     {
       headers: {
-        Authorization: `Bearer ${HF_TOKEN}`,
-        "Content-Type": "application/json"
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${API_KEY}`
       }
     }
   );
 
-  return res.data?.[0]?.generated_text || '🤖 No response';
+  // Gemini повертає відповідь в candidates[0].content
+  return res.data?.candidates?.[0]?.content || '🤖 No response';
 }
