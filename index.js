@@ -7,7 +7,7 @@ const client = bedrock.createClient({
   port: Number(process.env.MC_PORT),
   username: process.env.MC_NAME,
   offline: true,
-  version: '1.21.0' // Aternos зазвичай підтримує цю версію для протоколу
+  version: '1.21.130 // Aternos зазвичай підтримує цю версію для протоколу
 });
 
 // ===== ПОДІЇ СЕРВЕРА =====
@@ -103,3 +103,4 @@ async function queryGemini(prompt) {
     return "❌ Помилка при зверненні до ШІ.";
   }
 }
+
