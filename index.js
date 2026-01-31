@@ -81,26 +81,28 @@ function sendToChat(text) {
   });
 }
 
-// ===== РОБОТА З GEMINI API =====
+// ===== GEMINI =====
 async function queryGemini(prompt) {
   const API_KEY = process.env.GOOGLE_API_KEY;
-  if (!API_KEY) return "❌ Помилка: Немає API ключа в змінних середовища.";
+  if (!API_KEY) return "❌ GOOGLE_API_KEY not set";
 
   try {
-    const response = await axios.post(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`,
+    const res = await axios.post(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent",
       {
-        contents: [{ parts: [{ text: prompt }] }]
+        contents: [{ role: "user", parts: [{ text: prompt }] }]
       },
-      { timeout: 10000 }
+      {
+        headers: { "Content-Type": "application/json", "x-goog-api-key": API_KEY },
+        timeout: 15000
+      }
     );
 
-    const result = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    return result || "🤖 Gemini не надіслав відповіді.";
-  } catch (error) {
-    console.error("💥 Помилка API:", error.response?.data || error.message);
-    return "❌ Помилка при зверненні до ШІ.";
+    const text = res.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text || typeof text !== "string") return "🤖 (no response)";
+    return text.slice(0, 250); // безпечний для Minecraft чату
+  } catch (e) {
+    console.error("💥 Gemini failed:", e.response?.data || e.message);
+    return "❌ Gemini error";
   }
 }
-
-
