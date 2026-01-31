@@ -1,82 +1,15 @@
-const bedrock = require('bedrock-protocol');
 const axios = require('axios');
 
-const client = bedrock.createClient({
-  host: process.env.MC_HOST,
-  port: Number(process.env.MC_PORT),
-  username: process.env.MC_NAME,
-  offline: true
-});
+const API_KEY = process.env.GOOGLE_API_KEY;
 
-client.on('join', () => {
-  console.log('✅ Bot joined the server');
-});
-
-client.on('disconnect', reason => {
-  console.log('❌ Disconnected:', reason);
-});
-
-client.on('text', async (packet) => {
-  const message = packet.message || packet.parameters?.[0];
-  const sender = packet.source_name;
-  if (!message || !sender) return;
-
-  console.log(`💬 ${sender}: ${message}`);
-
-  if (message.startsWith('!ai ')) {
-    const prompt = message.slice(4).trim();
-    if (!prompt) return;
-
-    try {
-      const reply = await queryGemini(prompt);
-
-      client.write('text', {
-        type: 'chat',
-        needs_translation: false,
-        source_name: client.username,
-        message: `${sender}: ${reply}`
-      });
-
-    } catch (err) {
-      console.error('❌ Gemini error:', err.response?.data || err.message);
-
-      client.write('text', {
-        type: 'chat',
-        needs_translation: false,
-        source_name: client.username,
-        message: '❌ AI error'
-      });
-    }
-  }
-});
-
-// Google Gemini
-async function queryGemini(prompt) {
-  const API_KEY = process.env.GOOGLE_API_KEY;
-  if (!API_KEY) throw new Error("GOOGLE_API_KEY не встановлений!");
-
-  const url = `https://generativelanguage.googleapis.com/v1beta2/models/text-bison-001:generateText?key=${API_KEY}`;
-
+async function listModels() {
+  const url = `https://generativelanguage.googleapis.com/v1beta2/models?key=${API_KEY}`;
   try {
-    const res = await axios.post(
-      url,
-      {
-        prompt: { text: prompt },
-        temperature: 0.7,
-        maxOutputTokens: 512,
-        candidateCount: 1
-      },
-      {
-        headers: { 'Content-Type': 'application/json' }
-      }
-    );
-
-    console.log('✅ Gemini response:', res.data);
-
-    return res.data?.candidates?.[0]?.output || '🤖 No response';
-
-  } catch (error) {
-    console.error('💥 Gemini API request failed:', error.response?.data || error.message);
-    throw error;
+    const res = await axios.get(url);
+    console.log("Доступні моделі Gemini:", res.data.models.map(m => m.name));
+  } catch (err) {
+    console.error("Помилка при отриманні моделей:", err.response?.data || err.message);
   }
 }
+
+listModels();
