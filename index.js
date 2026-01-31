@@ -15,26 +15,44 @@ client.on("error", (err) => console.error("⚠️ Bedrock error:", err.message |
 
 // ===== CHAT HANDLER =====
 client.on("text", async (packet) => {
-  if (packet.type !== "chat") return;
+  // 1. Логуємо все, що приходить, щоб зрозуміти структуру (потім можна видалити)
+  console.log(`DEBUG: [Type: ${packet.type}] Sender: ${packet.source_name} Params:`, packet.parameters);
+
+  // 2. Ігноруємо повідомлення від самого бота
   if (packet.source_name === client.username) return;
 
-  const message = (packet.message ?? packet.parameters?.[1] ?? packet.parameters?.[0] || "").trim();
+  // 3. ВИПРАВЛЕНО: Правильне отримання тексту повідомлення з дужками
+  const message = (packet.message ?? packet.parameters?.[1] ?? packet.parameters?.[0] ?? "").trim();
+  
   if (!message) return;
 
-  console.log(`💬 ${packet.source_name}: ${message}`);
-
-  // Перевіряємо чи починається з !ai (регістронезалежно)
+  // 4. Логіка команди !ai
   if (!message.toLowerCase().startsWith("!ai")) return;
 
-  // Витягуємо текст після !ai
-  // Це прибере "!ai" і будь-яку кількість пробілів після нього
-  const prompt = message.slice(3).trim(); 
-  
+  const prompt = message.slice(3).trim();
   if (!prompt) {
-    // Якщо написали просто "!ai" без тексту
-    sendMessage("Привіт! Напиши щось після команди, наприклад: !ai як справи?");
+    sendChatMessage("Потрібен текст після !ai");
     return;
   }
+
+  console.log(`🤖 Промпт для Gemini: ${prompt}`);
+  const reply = await queryGemini(prompt);
+  sendChatMessage(reply);
+});
+
+// Функція для відправки повідомлень
+function sendChatMessage(text) {
+  client.queue("text", {
+    type: "chat",
+    needs_translation: false,
+    source_name: client.username,
+    xuid: "0",
+    platform_chat_id: "",
+    filtered_message: "",
+    message: String(text)
+  });
+}
+
 
   const reply = await queryGemini(prompt);
   sendMessage(reply);
@@ -78,4 +96,5 @@ async function queryGemini(prompt) {
     return "❌ Gemini error";
   }
 }
+
 
