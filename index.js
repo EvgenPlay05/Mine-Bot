@@ -15,35 +15,43 @@ client.on("error", (err) => console.error("⚠️ Bedrock error:", err.message |
 
 // ===== CHAT HANDLER =====
 client.on("text", async (packet) => {
-  // Лише чат повідомлення
   if (packet.type !== "chat") return;
-  if (!packet.source_name) return;
   if (packet.source_name === client.username) return;
 
-  const message = packet.message ?? packet.parameters?.[1] ?? packet.parameters?.[0];
-  if (!message || typeof message !== "string") return;
+  const message = (packet.message ?? packet.parameters?.[1] ?? packet.parameters?.[0] || "").trim();
+  if (!message) return;
 
   console.log(`💬 ${packet.source_name}: ${message}`);
 
-  // Якщо починається з !ai
-  if (!message.startsWith("!ai ")) return;
-  const prompt = message.slice(4).trim();
-  if (!prompt) return;
+  // Перевіряємо чи починається з !ai (регістронезалежно)
+  if (!message.toLowerCase().startsWith("!ai")) return;
 
-  // Отримуємо відповідь від Gemini
+  // Витягуємо текст після !ai
+  // Це прибере "!ai" і будь-яку кількість пробілів після нього
+  const prompt = message.slice(3).trim(); 
+  
+  if (!prompt) {
+    // Якщо написали просто "!ai" без тексту
+    sendMessage("Привіт! Напиши щось після команди, наприклад: !ai як справи?");
+    return;
+  }
+
   const reply = await queryGemini(prompt);
+  sendMessage(reply);
+});
 
-  // ===== Надсилаємо назад у чат =====
+// Допоміжна функція для відправки, щоб не дублювати об'єкт
+function sendMessage(text) {
   client.queue("text", {
     type: "chat",
     needs_translation: false,
     source_name: client.username,
-    xuid: "",
-    platform_chat_id: "0",
+    xuid: "0",
+    platform_chat_id: "",
     filtered_message: "",
-    message: reply
+    message: String(text)
   });
-});
+}
 
 // ===== GEMINI =====
 async function queryGemini(prompt) {
@@ -70,3 +78,4 @@ async function queryGemini(prompt) {
     return "❌ Gemini error";
   }
 }
+
