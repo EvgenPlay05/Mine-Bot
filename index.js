@@ -8,12 +8,10 @@ const client = bedrock.createClient({
   offline: true
 });
 
-// Коли бот заходить
 client.on('join', () => {
   console.log('✅ Bot joined the server');
 });
 
-// Коли бот відключається
 client.on('disconnect', reason => {
   console.log('❌ Disconnected:', reason);
 });
@@ -23,33 +21,28 @@ client.on('text', async (packet) => {
   const message = packet.message;
   const sender = packet.name;
 
-  // Реагуємо тільки на команду !ai
-  if (message.startsWith('!ai ')) {
+  if(message.startsWith('!ai ')) {
     const prompt = message.replace('!ai ', '');
     console.log(`💬 ${sender}: ${prompt}`);
 
     try {
-      const reply = await queryOpenAssistant(prompt);
-      client.chat(`${sender}, ${reply}`);
-    } catch (err) {
+      const reply = await queryHF(prompt);
+      client.queue('text', { message: `${sender}, ${reply}` });
+    } catch(err) {
       console.error(err);
-      client.chat('❌ Error: cannot get AI response');
+      client.queue('text', { message: '❌ Error: cannot get AI response' });
     }
   }
 });
 
-// --- Простий запит до Open Assistant ---
-async function queryOpenAssistant(prompt) {
-  const res = await axios.post('https://api.open-assistant.io/message', {
-    input: prompt
-  });
-  
-  // Найпростіше діставання відповіді
-  if(res.data?.output && res.data.output[0]?.content) {
-    for(const c of res.data.output[0].content) {
-      if(c.type === 'text') return c.text;
-    }
-  }
-  
-  return '🤖 AI did not return a message';
+// Hugging Face AI
+async function queryHF(prompt) {
+  const HF_TOKEN = process.env.HF_TOKEN;
+  const res = await axios.post(
+    'https://api-inference.huggingface.co/models/mosaicml/mpt-7b-instruct',
+    { inputs: prompt },
+    { headers: { Authorization: `Bearer ${HF_TOKEN}` } }
+  );
+
+  return res.data[0]?.generated_text || '🤖 AI did not return a message';
 }
