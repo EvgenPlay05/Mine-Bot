@@ -1,52 +1,76 @@
 const bedrock = require("bedrock-protocol");
 const axios = require("axios");
 
+// Налаштування клієнта
 const client = bedrock.createClient({
   host: process.env.MC_HOST,
   port: Number(process.env.MC_PORT),
   username: process.env.MC_NAME,
   offline: true,
-  version: '1.21.0' // Можна спробувати змінити, якщо будуть помилки версії
+  version: '1.21.0' // Aternos зазвичай підтримує цю версію для протоколу
 });
 
-// ===== EVENTS =====
-client.on("join", () => console.log("✅ Бот успішно зайшов на сервер"));
-client.on("disconnect", (reason) => console.log("❌ Відключено:", JSON.stringify(reason)));
-client.on("error", (err) => console.error("⚠️ Помилка:", err.message || err));
+// ===== ПОДІЇ СЕРВЕРА =====
+client.on("join", () => {
+  console.log("✅ Бот успішно підключився до сервера!");
+});
 
-// ===== CHAT HANDLER =====
+client.on("disconnect", (packet) => {
+  console.log("❌ Бот відключився:", packet.reason);
+});
+
+client.on("error", (err) => {
+  console.error("⚠️ Помилка протоколу:", err.message);
+});
+
+// ===== ОБРОБКА ЧАТУ =====
 client.on("text", async (packet) => {
-  // Виводимо тип повідомлення для діагностики
-  console.log(`[${packet.type}] Отримано повідомлення від ${packet.source_name}`);
+  // Логуємо структуру пакета для налагодження
+  console.log(`[DEBUG] Отримано пакет типу: ${packet.type}`);
 
-  // Ігноруємо повідомлення від самого себе
-  if (packet.source_name === client.username) return;
-
-  // Отримуємо текст (виправлена логіка вибору полів)
-  const message = (packet.message || packet.parameters?.[1] || packet.parameters?.[0] || "").trim();
+  // Отримуємо ім'я відправника
+  const sender = packet.source_name || packet.parameters?.[0] || "Unknown";
   
-  if (!message) return;
-  console.log(`💬 Чат: ${message}`);
+  // Ігноруємо повідомлення від самого бота
+  if (sender === client.username) return;
 
-  // Перевірка команди !ai (без врахування регістру)
+  // Отримуємо текст повідомлення (виправлена логіка без помилок синтаксису)
+  let message = "";
+  if (packet.message) {
+    message = packet.message;
+  } else if (packet.parameters && packet.parameters[1]) {
+    message = packet.parameters[1];
+  } else if (packet.parameters && packet.parameters[0]) {
+    message = packet.parameters[0];
+  }
+
+  message = message.trim();
+  if (!message) return;
+
+  console.log(`💬 [ЧАТ] ${sender}: ${message}`);
+
+  // Перевірка команди !ai
   if (!message.toLowerCase().startsWith("!ai")) return;
 
-  // Вирізаємо все, що після !ai
   const prompt = message.slice(3).trim();
-  
   if (!prompt) {
-    sendMessage("Напишіть щось після !ai, наприклад: !ai привіт!");
+    sendToChat("Привіт! Напиши щось після !ai, наприклад: !ai як справи?");
     return;
   }
 
-  // Отримуємо відповідь
-  const reply = await queryGemini(prompt);
-  sendMessage(reply);
+  console.log(`🤖 Запит до Gemini: ${prompt}`);
+  
+  const aiResponse = await queryGemini(prompt);
+  sendToChat(aiResponse);
 });
 
-// Функція відправки повідомлення
-function sendMessage(text) {
+// Функція відправки повідомлення в чат
+function sendToChat(text) {
   if (!text) return;
+  
+  // Обрізаємо довжину (Minecraft ліміт ~256 символів)
+  const safeText = text.toString().slice(0, 250).replace(/\n/g, " ");
+
   client.queue("text", {
     type: "chat",
     needs_translation: false,
@@ -54,34 +78,28 @@ function sendMessage(text) {
     xuid: "0",
     platform_chat_id: "",
     filtered_message: "",
-    message: String(text)
+    message: safeText
   });
 }
 
-// ===== GEMINI API =====
+// ===== РОБОТА З GEMINI API =====
 async function queryGemini(prompt) {
   const API_KEY = process.env.GOOGLE_API_KEY;
-  if (!API_KEY) return "❌ Помилка: GOOGLE_API_KEY не вказано в налаштуваннях";
+  if (!API_KEY) return "❌ Помилка: Немає API ключа в змінних середовища.";
 
   try {
-    const res = await axios.post(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+    const response = await axios.post(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`,
       {
-        contents: [{ role: "user", parts: [{ text: prompt }] }]
+        contents: [{ parts: [{ text: prompt }] }]
       },
-      {
-        headers: { "Content-Type": "application/json", "x-goog-api-key": API_KEY },
-        timeout: 15000
-      }
+      { timeout: 10000 }
     );
 
-    const text = res.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) return "🤖 Gemini не зміг згенерувати відповідь.";
-    
-    // Обрізаємо для чату Minecraft
-    return text.slice(0, 250).replace(/\n/g, " "); 
-  } catch (e) {
-    console.error("💥 Помилка Gemini API:", e.response?.data || e.message);
-    return "❌ Помилка зв'язку з Gemini";
+    const result = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    return result || "🤖 Gemini не надіслав відповіді.";
+  } catch (error) {
+    console.error("💥 Помилка API:", error.response?.data || error.message);
+    return "❌ Помилка при зверненні до ШІ.";
   }
 }
