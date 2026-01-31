@@ -6,6 +6,7 @@
     "start": "node index.js"
   },
   "dependencies": {
-    "bedrock-protocol": "^3.45.0"
+    "bedrock-protocol": "^3.45.0",
+    "node-fetch": "^3.4.0"
   }
 }
