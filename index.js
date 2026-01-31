@@ -34,7 +34,7 @@ client.on('text', async (packet) => {
         type: 'chat',
         needs_translation: false,
         source_name: client.username,
-        message: `${sender}: ${reply}`
+        message: `${sender}: ${reply || "🤖 ..."}`
       });
 
     } catch (err) {
@@ -53,31 +53,43 @@ client.on('text', async (packet) => {
 // Google Gemini
 async function queryGemini(prompt) {
   const API_KEY = process.env.GOOGLE_API_KEY;
-  if (!API_KEY) throw new Error("GOOGLE_API_KEY not set");
+  if (!API_KEY) return "❌ API key not set";
 
   const url =
-    "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent";
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent";
 
-  const res = await axios.post(
-    url,
-    {
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: prompt }]
-        }
-      ]
-    },
-    {
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": API_KEY
+  try {
+    const res = await axios.post(
+      url,
+      {
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: prompt }]
+          }
+        ]
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": API_KEY
+        },
+        timeout: 15000
       }
-    }
-  );
+    );
 
-  return (
-    res.data?.candidates?.[0]?.content?.parts?.[0]?.text ||
-    "🤖 (no response)"
-  );
+    const text =
+      res.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    if (!text || typeof text !== "string") {
+      return "🤖 (empty response)";
+    }
+
+    // Minecraft chat limit safety
+    return text.slice(0, 250);
+
+  } catch (e) {
+    console.error("💥 Gemini failed:", e.response?.data || e.message);
+    return "❌ Gemini error";
+  }
 }
