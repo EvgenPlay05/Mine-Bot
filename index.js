@@ -5,61 +5,48 @@ const client = bedrock.createClient({
   host: process.env.MC_HOST,
   port: Number(process.env.MC_PORT),
   username: process.env.MC_NAME,
-  offline: true
+  offline: true,
+  version: '1.21.0' // Можна спробувати змінити, якщо будуть помилки версії
 });
 
 // ===== EVENTS =====
-client.on("join", () => console.log("✅ Bot joined the server"));
-client.on("disconnect", (reason) => console.log("❌ Disconnected:", reason));
-client.on("error", (err) => console.error("⚠️ Bedrock error:", err.message || err));
+client.on("join", () => console.log("✅ Бот успішно зайшов на сервер"));
+client.on("disconnect", (reason) => console.log("❌ Відключено:", JSON.stringify(reason)));
+client.on("error", (err) => console.error("⚠️ Помилка:", err.message || err));
 
 // ===== CHAT HANDLER =====
 client.on("text", async (packet) => {
-  // 1. Логуємо все, що приходить, щоб зрозуміти структуру (потім можна видалити)
-  console.log(`DEBUG: [Type: ${packet.type}] Sender: ${packet.source_name} Params:`, packet.parameters);
+  // Виводимо тип повідомлення для діагностики
+  console.log(`[${packet.type}] Отримано повідомлення від ${packet.source_name}`);
 
-  // 2. Ігноруємо повідомлення від самого бота
+  // Ігноруємо повідомлення від самого себе
   if (packet.source_name === client.username) return;
 
-  // 3. ВИПРАВЛЕНО: Правильне отримання тексту повідомлення з дужками
-  const message = (packet.message ?? packet.parameters?.[1] ?? packet.parameters?.[0] ?? "").trim();
+  // Отримуємо текст (виправлена логіка вибору полів)
+  const message = (packet.message || packet.parameters?.[1] || packet.parameters?.[0] || "").trim();
   
   if (!message) return;
+  console.log(`💬 Чат: ${message}`);
 
-  // 4. Логіка команди !ai
+  // Перевірка команди !ai (без врахування регістру)
   if (!message.toLowerCase().startsWith("!ai")) return;
 
+  // Вирізаємо все, що після !ai
   const prompt = message.slice(3).trim();
+  
   if (!prompt) {
-    sendChatMessage("Потрібен текст після !ai");
+    sendMessage("Напишіть щось після !ai, наприклад: !ai привіт!");
     return;
   }
 
-  console.log(`🤖 Промпт для Gemini: ${prompt}`);
-  const reply = await queryGemini(prompt);
-  sendChatMessage(reply);
-});
-
-// Функція для відправки повідомлень
-function sendChatMessage(text) {
-  client.queue("text", {
-    type: "chat",
-    needs_translation: false,
-    source_name: client.username,
-    xuid: "0",
-    platform_chat_id: "",
-    filtered_message: "",
-    message: String(text)
-  });
-}
-
-
+  // Отримуємо відповідь
   const reply = await queryGemini(prompt);
   sendMessage(reply);
 });
 
-// Допоміжна функція для відправки, щоб не дублювати об'єкт
+// Функція відправки повідомлення
 function sendMessage(text) {
+  if (!text) return;
   client.queue("text", {
     type: "chat",
     needs_translation: false,
@@ -71,14 +58,14 @@ function sendMessage(text) {
   });
 }
 
-// ===== GEMINI =====
+// ===== GEMINI API =====
 async function queryGemini(prompt) {
   const API_KEY = process.env.GOOGLE_API_KEY;
-  if (!API_KEY) return "❌ GOOGLE_API_KEY not set";
+  if (!API_KEY) return "❌ Помилка: GOOGLE_API_KEY не вказано в налаштуваннях";
 
   try {
     const res = await axios.post(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent",
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
       {
         contents: [{ role: "user", parts: [{ text: prompt }] }]
       },
@@ -89,12 +76,12 @@ async function queryGemini(prompt) {
     );
 
     const text = res.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text || typeof text !== "string") return "🤖 (no response)";
-    return text.slice(0, 250); // безпечний для Minecraft чату
+    if (!text) return "🤖 Gemini не зміг згенерувати відповідь.";
+    
+    // Обрізаємо для чату Minecraft
+    return text.slice(0, 250).replace(/\n/g, " "); 
   } catch (e) {
-    console.error("💥 Gemini failed:", e.response?.data || e.message);
-    return "❌ Gemini error";
+    console.error("💥 Помилка Gemini API:", e.response?.data || e.message);
+    return "❌ Помилка зв'язку з Gemini";
   }
 }
-
-
