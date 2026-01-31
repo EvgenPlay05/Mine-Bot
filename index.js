@@ -24,7 +24,8 @@ client.on('text', async (packet) => {
   console.log(`💬 ${sender}: ${message}`);
 
   if (message.startsWith('!ai ')) {
-    const prompt = message.slice(4);
+    const prompt = message.slice(4).trim();
+    if (!prompt) return;
 
     try {
       const reply = await queryGemini(prompt);
@@ -37,7 +38,7 @@ client.on('text', async (packet) => {
       });
 
     } catch (err) {
-      console.error('Gemini error:', err);
+      console.error('❌ Gemini error:', err.response?.data || err.message);
 
       client.write('text', {
         type: 'chat',
@@ -56,19 +57,26 @@ async function queryGemini(prompt) {
 
   const url = `https://generativelanguage.googleapis.com/v1beta2/models/text-bison-001:generateText?key=${API_KEY}`;
 
-  const res = await axios.post(
-    url,
-    {
-      prompt: { text: prompt },
-      temperature: 0.7,
-      maxOutputTokens: 512
-    },
-    {
-      headers: {
-        'Content-Type': 'application/json'
+  try {
+    const res = await axios.post(
+      url,
+      {
+        prompt: { text: prompt },
+        temperature: 0.7,
+        maxOutputTokens: 512,
+        candidateCount: 1
+      },
+      {
+        headers: { 'Content-Type': 'application/json' }
       }
-    }
-  );
+    );
 
-  return res.data?.candidates?.[0]?.output || '🤖 No response';
+    console.log('✅ Gemini response:', res.data);
+
+    return res.data?.candidates?.[0]?.output || '🤖 No response';
+
+  } catch (error) {
+    console.error('💥 Gemini API request failed:', error.response?.data || error.message);
+    throw error;
+  }
 }
