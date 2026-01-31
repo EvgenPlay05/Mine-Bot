@@ -58,7 +58,7 @@ async function queryHF(prompt) {
   const HF_TOKEN = process.env.HF_TOKEN
 
   const res = await axios.post(
-    'https://api-inference.huggingface.co/models/mosaicml/mpt-7b-instruct',
+    'https://router.huggingface.co/hf-inference/models/mosaicml/mpt-7b-instruct',
     { inputs: prompt },
     {
       headers: {
@@ -69,3 +69,4 @@ async function queryHF(prompt) {
 
   return res.data?.[0]?.generated_text || '🤖 No response'
 }
+
