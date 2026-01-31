@@ -51,10 +51,13 @@ client.on('text', async (packet) => {
 
 // Google Gemini
 async function queryGemini(prompt) {
-  const API_KEY = process.env.GOOGLE_API_KEY; // твій ключ з Google AI Studio
+  const API_KEY = process.env.GOOGLE_API_KEY;
+  if (!API_KEY) throw new Error("GOOGLE_API_KEY не встановлений!");
+
+  const url = `https://generativelanguage.googleapis.com/v1beta2/models/text-bison-001:generateText?key=${API_KEY}`;
 
   const res = await axios.post(
-    'https://generativelanguage.googleapis.com/v1beta2/models/text-bison-001:generate',
+    url,
     {
       prompt: { text: prompt },
       temperature: 0.7,
@@ -62,12 +65,10 @@ async function queryGemini(prompt) {
     },
     {
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${API_KEY}`
+        'Content-Type': 'application/json'
       }
     }
   );
 
-  // Gemini повертає відповідь в candidates[0].content
-  return res.data?.candidates?.[0]?.content || '🤖 No response';
+  return res.data?.candidates?.[0]?.output || '🤖 No response';
 }
