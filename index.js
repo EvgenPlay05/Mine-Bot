@@ -1,6 +1,5 @@
 const bedrock = require("bedrock-protocol");
 const axios = require("axios");
-const { v4: uuidv4 } = require('uuid');
 
 const CONFIG = {
   host: process.env.MC_HOST,
@@ -13,7 +12,7 @@ const CONFIG = {
 const client = bedrock.createClient(CONFIG);
 
 // ===== ПОДІЇ =====
-client.on("join", () => console.log(`✅ Бот ${CONFIG.username} успішно зайшов на сервер!`));
+client.on("join", () => console.log(`✅ Бот ${CONFIG.username} на сервері!`));
 client.on("spawn", () => console.log("🌍 Бот заспавнився"));
 client.on("disconnect", (packet) => console.log("❌ ВІДКЛЮЧЕНО:", packet.reason || "Невідома причина"));
 client.on("error", (err) => { if (!err.message?.includes('timeout')) console.error("⚠️", err.message); });
@@ -41,46 +40,78 @@ client.on("text", async (packet) => {
 
   console.log(`⏳ Думаю...`);
   const response = await queryGemini(prompt, sender);
-  setTimeout(() => sendCommand(response), 2000);
+  
+  // Затримка 3 секунди (щоб сервер не кікнув за спам)
+  setTimeout(() => sendChat(response), 3000);
 });
 
-// ===== ФУНКЦІЯ ВІДПРАВКИ =====
-function sendCommand(text) {
+// ===== ПРОСТА ФУНКЦІЯ ВІДПРАВКИ (TEXT ПАКЕТ) =====
+function sendChat(text) {
   if (!text) return;
 
   let safeText = String(text)
-    .replace(/[^\p{L}\p{N}\p{P}\p{Z}]/gu, "") 
+    .replace(/[^\p{L}\p{N}\p{P}\p{Z}]/gu, "") // Видаляємо емоджі
     .replace(/["\\]/g, "") 
+    .replace(/\n/g, " ")
     .trim()
     .substring(0, 150);
 
-  console.log(`📤 Відправляю команду /me: ${safeText}`);
+  console.log(`📤 Відправляю в чат: ${safeText}`);
 
   try {
-    // Використовуємо client.write() як в документації (замість client.queue)
-    client.write('command_request', {
-      command: `/me ${safeText}`,
-      origin: {
-        type: 'player',
-        uuid: uuidv4(),
-        request_id: uuidv4()
-      },
-      internal: false,
-      version: '52' // 🔥 РЯДОК замість числа!
+    // Простий text пакет (без command_request)
+    client.write('text', {
+      type: 'chat',
+      needs_translation: false,
+      source_name: client.username,
+      xuid: '',
+      platform_chat_id: '',
+      message: safeText
     });
+    console.log("✅ Пакет надіслано успішно");
   } catch (e) {
-    console.error("❌ Помилка команди:", e.message);
+    console.error("❌ Помилка відправки:", e.message);
   }
 }
 
-// ===== GEMINI API =====
+// ===== GEMINI API (з детальним логуванням) =====
 async function queryGemini(prompt, username) {
   const API_KEY = process.env.GOOGLE_API_KEY;
-  if (!API_KEY) return "Немає ключа";
+  
+  if (!API_KEY) {
+    console.error("❌ GOOGLE_API_KEY не знайдено!");
+    return "Немає ключа API";
+  }
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.aiModel}:generateContent?key=${API_KEY}`;
+
   try {
-    const res = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.aiModel}:generateContent?key=${API_KEY}`, {
-      contents: [{ parts: [{ text: `Ти гравець Minecraft. Українська мова. Без емоджі. Коротко. Питання від ${username}: ${prompt}` }] }]
-    }, { headers: { "Content-Type": "application/json" }, timeout: 8000 });
-    return res.data?.candidates?.[0]?.content?.parts?.[0]?.text || "Не знаю";
-  } catch (e) { return "Помилка API"; }
+    console.log(`🔄 Запит до Gemini...`);
+    
+    const res = await axios.post(url, {
+      contents: [{ 
+        parts: [{ 
+          text: `Ти гравець Minecraft. Українська мова. Без емоджі. Коротко (1 речення). Питання від ${username}: ${prompt}` 
+        }] 
+      }]
+    }, { 
+      headers: { "Content-Type": "application/json" }, 
+      timeout: 15000 // Збільшив таймаут до 15 сек
+    });
+
+    const answer = res.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    console.log(`✅ Відповідь AI: ${answer}`);
+    return answer || "Не знаю що сказати";
+    
+  } catch (e) {
+    // Детальне логування помилки
+    if (e.response) {
+      console.error(`❌ API Error ${e.response.status}:`, JSON.stringify(e.response.data));
+    } else if (e.code === 'ECONNABORTED') {
+      console.error("❌ Таймаут запиту до AI");
+    } else {
+      console.error("❌ Помилка:", e.message);
+    }
+    return "Щось пішло не так";
+  }
 }
