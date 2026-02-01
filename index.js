@@ -6,7 +6,7 @@ const CONFIG = {
   host: process.env.MC_HOST,
   port: Number(process.env.MC_PORT),
   username: process.env.MC_NAME,
-  aiModel: "gemini-2.5-flash", // Твоя робоча модель
+  aiModel: "gemini-2.5-flash", 
   offline: true
 };
 
@@ -16,12 +16,8 @@ const client = bedrock.createClient(CONFIG);
 client.on("join", () => console.log(`✅ Бот ${CONFIG.username} успішно зайшов на сервер!`));
 client.on("spawn", () => console.log("🌍 Бот з'явився у світі"));
 
-// Детальний вивід причини відключення
 client.on("disconnect", (packet) => {
-  console.log("❌ ВІДКЛЮЧЕНО СЕРВЕРОМ:", packet.reason || "bad_packet (невірний пакет)");
-  if (packet.reason === "bad_packet") {
-    console.log("💡 Порада: Можливо бот пише занадто швидко або сервер має анти-спам.");
-  }
+  console.log("❌ ВІДКЛЮЧЕНО СЕРВЕРОМ:", packet.reason || "Невідома причина");
 });
 
 client.on("error", (err) => {
@@ -31,78 +27,72 @@ client.on("error", (err) => {
 
 // ===== ОБРОБНИК ЧАТУ =====
 client.on("text", async (packet) => {
-  // 1. Фільтрація системних повідомлень
+  // Фільтрація сміття
   if (packet.type === 'json' || packet.type === 'system' || packet.type === 'popup') return;
 
   let sender = packet.source_name;
   let message = packet.message;
 
-  // 2. Обробка перекладених повідомлень (стандарт для Aternos/Bedrock)
+  // Обробка для Aternos (Translation packet)
   if (packet.type === 'translation' && Array.isArray(packet.parameters) && packet.parameters.length >= 2) {
     sender = packet.parameters[0];
     message = packet.parameters[1];
   }
 
-  // Якщо відправника немає або це сам бот
-  if (!sender || sender === client.username) return;
+  // Ігноруємо самого бота та пусті повідомлення
+  if (!sender || sender === client.username || !message) return;
 
-  // Очистка повідомлення від кольорів (§a, §l тощо)
+  // Очистка повідомлення
   const cleanMessage = String(message).replace(/§./g, '').trim();
 
-  // Логування
+  // Логування вхідного повідомлення
   console.log(`💬 [${sender}]: ${cleanMessage}`);
 
-  // 3. Перевірка команди !ai
+  // Перевірка команди
   if (!cleanMessage.toLowerCase().startsWith("!ai")) return;
 
   const prompt = cleanMessage.slice(3).trim();
-  if (!prompt) {
-    // Не відповідаємо одразу, щоб не отримати кік
-    setTimeout(() => sendChatMessage(`Привіт, ${sender}! Напиши питання.`), 1000);
-    return;
-  }
+  if (!prompt) return; // Ігноруємо пусті !ai
 
-  console.log(`⏳ Думаю над запитанням від ${sender}...`);
+  console.log(`⏳ Обробляю запит від ${sender}...`);
 
-  // 4. Запит до AI (це займає час, тому затримка вже природна)
+  // Запит до AI
   const aiResponse = await queryGemini(prompt, sender);
   
-  // 5. ВАЖЛИВО: Штучна затримка перед відправкою відповіді
-  // Aternos кікає за миттєві відповіді (bad_packet)
+  // Затримка перед відповіддю (імітація друку + захист від спаму)
   setTimeout(() => {
     sendChatMessage(aiResponse);
-  }, 2000); // Затримка 2 секунди
+  }, 1500); 
 });
 
-// ===== ВІДПРАВКА ПОВІДОМЛЕНЬ =====
+// ===== ВИПРАВЛЕНА ФУНКЦІЯ ВІДПРАВКИ =====
 function sendChatMessage(text) {
   if (!text) return;
 
-  // Очистка від символів, які можуть зламати пакет або чат
   let safeText = String(text)
-    .replace(/\*\*/g, "") // Markdown жирний
-    .replace(/\*/g, "")   // Markdown курсив
-    .replace(/`/g, "")    // Код
-    .replace(/\n/g, " ")  // Переноси рядків
+    .replace(/\*\*/g, "") 
+    .replace(/\*/g, "")   
+    .replace(/`/g, "")    
+    .replace(/\n/g, " ")  
     .trim();
 
-  // Обрізаємо
   if (safeText.length > 250) safeText = safeText.substring(0, 245) + "...";
 
   console.log(`📤 Відправляю: ${safeText}`);
 
   try {
-    // Стандартний пакет чату для Bedrock
+    // 🔥 ГОЛОВНЕ ВИПРАВЛЕННЯ ТУТ 🔥
+    // source_name має бути ПУСТИМ, щоб сервер не сварився на "bad_packet"
     client.queue("text", {
       type: "chat", 
       needs_translation: false,
-      source_name: client.username, // Сервер має знати, від кого це
+      source_name: "", // <--- ЗАЛИШАЄМО ПУСТИМ!
       xuid: "",
       platform_chat_id: "",
       message: safeText
     });
   } catch (e) {
-    console.error("❌ Помилка при відправці пакету:", e.message);
+    console.error("❌ Помилка відправки:", e.message);
   }
 }
 
@@ -111,25 +101,20 @@ async function queryGemini(prompt, username) {
   const API_KEY = process.env.GOOGLE_API_KEY;
   if (!API_KEY) return "❌ Немає ключа API";
 
-  // Використовуємо модель, яка працює у тебе
-  const model = CONFIG.aiModel;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${API_KEY}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.aiModel}:generateContent?key=${API_KEY}`;
 
   try {
     const res = await axios.post(url, {
       contents: [{ 
         parts: [{ 
-          text: `Ти гравець у Minecraft. Твій нік ${CONFIG.username}. Відповідай українською, коротко (макс 1 речення), весело. Питання від ${username}: ${prompt}` 
+          text: `Ти гравець Minecraft. Відповідай українською, весело, дуже коротко (макс 10-15 слів). Питання від ${username}: ${prompt}` 
         }] 
       }]
-    }, {
-      headers: { "Content-Type": "application/json" },
-      timeout: 10000
-    });
+    }, { headers: { "Content-Type": "application/json" }, timeout: 10000 });
 
-    return res.data?.candidates?.[0]?.content?.parts?.[0]?.text || "🤖 Хм, не знаю...";
+    return res.data?.candidates?.[0]?.content?.parts?.[0]?.text || "🤖 Хм...";
   } catch (e) {
-    console.error("💥 AI Error:", e.response?.status || e.message);
-    return "❌ Мозок перегрівся (помилка API).";
+    console.error("💥 AI Error:", e.response?.status);
+    return "❌ Щось пішло не так.";
   }
 }
