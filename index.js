@@ -16,7 +16,7 @@ const client = bedrock.createClient(CONFIG);
 client.on("join", () => console.log(`✅ Бот ${CONFIG.username} успішно зайшов на сервер!`));
 client.on("spawn", () => console.log("🌍 Бот заспавнився"));
 client.on("disconnect", (packet) => console.log("❌ ВІДКЛЮЧЕНО:", packet.reason || "Невідома причина"));
-client.on("error", (err) => { if (!err.message?.includes('timeout')) console.error("⚠️ Помилка:", err.message); });
+client.on("error", (err) => { if (!err.message?.includes('timeout')) console.error("⚠️", err.message); });
 
 // ===== ЧАТ =====
 client.on("text", async (packet) => {
@@ -57,22 +57,16 @@ function sendCommand(text) {
   console.log(`📤 Відправляю команду /me: ${safeText}`);
 
   try {
-    client.queue('command_request', {
+    // Використовуємо client.write() як в документації (замість client.queue)
+    client.write('command_request', {
       command: `/me ${safeText}`,
       origin: {
-        // 'player' = це і є тип 0, але рядком.
-        // 'automation_player' = це тип 5.
-        // Для Aternos краще 'player', щоб не кікнуло.
-        type: 'player', 
-        
+        type: 'player',
         uuid: uuidv4(),
-        request_id: uuidv4(),
-        
-        // 🔥 ЦЕ ПОЛЕ ВИРІШУЄ ПРОБЛЕМУ 'undefined'
-        player_entity_id: '0' 
+        request_id: uuidv4()
       },
-      internal: false
-      // 🔥 ВЕРСІЮ ПРИБРАНО (вона викликала помилку Number vs String)
+      internal: false,
+      version: '52' // 🔥 РЯДОК замість числа!
     });
   } catch (e) {
     console.error("❌ Помилка команди:", e.message);
