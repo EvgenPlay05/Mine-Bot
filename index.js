@@ -50,7 +50,7 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// ===== ВІДПРАВКА КОМАНДИ =====
+// ===== ВІДПРАВКА КОМАНДИ (Повна структура для 1.21+) =====
 function sendCommand(text) {
   if (!text) return;
 
@@ -60,38 +60,58 @@ function sendCommand(text) {
     .trim()
     .substring(0, 150);
 
-  console.log(`📤 Команда /say: ${safeText}`);
+  console.log(`📤 Команда /me: ${safeText}`);
 
   try {
-    // БЕЗ ПОЛЯ VERSION
     client.write('command_request', {
-      command: `/say ${safeText}`,
+      command: `/me ${safeText}`,
       origin: {
         type: 'player',
         uuid: '00000000-0000-0000-0000-000000000000',
-        request_id: ''
+        request_id: 'req-001',
+        player_entity_id: '1'  // 🔥 ЦЕ ПОЛЕ БУЛО ВІДСУТНЄ
       },
-      internal: false
+      internal: false,
+      version: '1'  // 🔥 Спробуємо як рядок
     });
-    console.log("✅ Команду надіслано");
+    console.log("✅ Варіант 1 спрацював");
   } catch (e) {
-    console.error("❌ Помилка:", e.message);
+    console.error("❌ Варіант 1:", e.message);
     
-    // Якщо не працює - пробуємо мінімальну структуру
     try {
-      console.log("🔄 Пробую мінімальну структуру...");
+      // Варіант 2: Інші значення
       client.write('command_request', {
-        command: `/say ${safeText}`,
+        command: `/me ${safeText}`,
         origin: {
-          type: 'player',
-          uuid: '',
-          request_id: ''
+          type: 0,  // Число замість рядка
+          uuid: '00000000-0000-0000-0000-000000000000',
+          request_id: 'req',
+          player_entity_id: 0  // Число
         },
-        internal: false
+        internal: false,
+        version: 1
       });
-      console.log("✅ Мінімальна структура спрацювала");
+      console.log("✅ Варіант 2 спрацював");
     } catch (e2) {
-      console.error("❌ Мінімальна теж не працює:", e2.message);
+      console.error("❌ Варіант 2:", e2.message);
+      
+      try {
+        // Варіант 3: Всі рядки
+        client.write('command_request', {
+          command: `/me ${safeText}`,
+          origin: {
+            type: 'player',
+            uuid: '',
+            request_id: '',
+            player_entity_id: ''
+          },
+          internal: false,
+          version: ''
+        });
+        console.log("✅ Варіант 3 спрацював");
+      } catch (e3) {
+        console.error("❌ Варіант 3:", e3.message);
+      }
     }
   }
 }
