@@ -22,7 +22,9 @@ client.on("disconnect", (packet) => {
 });
 
 client.on("error", (err) => {
+  // Ігноруємо таймаути
   if (err.message && err.message.includes('timeout')) return;
+  console.error("⚠️ Помилка клієнта:", err.message);
 });
 
 // ===== ОБРОБНИК ЧАТУ =====
@@ -33,13 +35,13 @@ client.on("text", async (packet) => {
   let sender = packet.source_name;
   let message = packet.message;
 
-  // Обробка Translation (стандарт для Bedrock серверів)
+  // Обробка Translation (для Aternos)
   if (packet.type === 'translation' && Array.isArray(packet.parameters) && packet.parameters.length >= 2) {
     sender = packet.parameters[0];
     message = packet.parameters[1];
   }
 
-  // Ігноруємо себе, сервер та пусті повідомлення
+  // Ігноруємо себе та пусті повідомлення
   if (!sender || sender === client.username || !message || sender === "Server") return;
 
   const cleanMsg = String(message).replace(/§./g, '').trim();
@@ -58,14 +60,14 @@ client.on("text", async (packet) => {
   setTimeout(() => sendCommand(response), 2000);
 });
 
-// ===== ФУНКЦІЯ ВІДПРАВКИ (COMMAND REQUEST) =====
+// ===== ФУНКЦІЯ ВІДПРАВКИ (ЯК В ДОКУМЕНТАЦІЇ) =====
 function sendCommand(text) {
   if (!text) return;
 
   // Чистка тексту
   let safeText = String(text)
-    .replace(/[^\p{L}\p{N}\p{P}\p{Z}]/gu, "") // Видаляємо емоджі
-    .replace(/["\\]/g, "") // Видаляємо лапки
+    .replace(/[^\p{L}\p{N}\p{P}\p{Z}]/gu, "") 
+    .replace(/["\\]/g, "") 
     .trim()
     .substring(0, 150);
 
@@ -74,15 +76,16 @@ function sendCommand(text) {
   try {
     const cmd = `/me ${safeText}`;
 
+    // ВИКОРИСТОВУЄМО ПАРАМЕТРИ З ДОКУМЕНТАЦІЇ
     client.queue('command_request', {
       command: cmd,
       origin: {
-        type: 'player',  // Це правильно (рядок)
-        uuid: uuidv4(),  // Це правильно (рядок-UUID)
-        request_id: uuidv4(),
+        type: 5,             // Як ти просив (Automation Player)
+        uuid: uuidv4(),      // Генеруємо UUID
+        request_id: uuidv4() // Генеруємо Request ID
       },
-      internal: false
-      // 🔥 ВИДАЛЕНО: version: 66 (це викликало помилку)
+      internal: false,
+      version: 86            // Як ти просив
     });
   } catch (e) {
     console.error("❌ Помилка команди:", e.message);
