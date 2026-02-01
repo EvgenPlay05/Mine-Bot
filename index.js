@@ -11,23 +11,10 @@ const CONFIG = {
 
 const client = bedrock.createClient(CONFIG);
 
-client.on("join", () => {
-  console.log(`✅ Бот на сервері!`);
-  
-  // 🔥 ДЕБАГ: Виведемо схему пакету command_request
-  try {
-    const proto = client.serializer.proto;
-    const cmdReq = proto.types['command_request'];
-    console.log("📋 Схема command_request:");
-    console.log(JSON.stringify(cmdReq, null, 2));
-  } catch (e) {
-    console.log("Не вдалося отримати схему:", e.message);
-  }
-});
-
-client.on("spawn", () => console.log("🌍 Заспавнився"));
-client.on("disconnect", (p) => console.log("❌ Відключено:", p.reason));
-client.on("error", (e) => console.error("⚠️", e.message));
+client.on("join", () => console.log(`✅ Бот ${CONFIG.username} (OP) на сервері!`));
+client.on("spawn", () => console.log("🌍 Бот заспавнився"));
+client.on("disconnect", (p) => console.log("❌ ВІДКЛЮЧЕНО:", p.reason || "Невідома причина"));
+client.on("error", (e) => { if (!e.message?.includes('timeout')) console.error("⚠️", e.message); });
 
 // ===== ЧАТ =====
 client.on("text", async (packet) => {
@@ -41,7 +28,7 @@ client.on("text", async (packet) => {
     message = packet.parameters[1];
   }
 
-  if (!sender || sender === client.username || !message) return;
+  if (!sender || sender === client.username || !message || sender === "Server") return;
 
   const cleanMsg = String(message).replace(/§./g, '').trim();
   console.log(`💬 [${sender}]: ${cleanMsg}`);
@@ -54,11 +41,58 @@ client.on("text", async (packet) => {
   
   const response = await queryGemini(prompt, sender);
   
-  // Не відправляємо поки що, просто виводимо
-  console.log(`🤖 Відповідь: ${response}`);
-  console.log("⚠️ Поки не відправляю (дебаг режим)");
+  await sleep(2000);
+  
+  sendMessage(response);
 });
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ===== ВІДПРАВКА ПОВІДОМЛЕННЯ =====
+function sendMessage(text) {
+  if (!text) return;
+
+  let safeText = String(text)
+    .replace(/[^\p{L}\p{N}\p{P}\p{Z}]/gu, "")
+    .replace(/["\\]/g, "")
+    .trim()
+    .substring(0, 150);
+
+  console.log(`📤 Відправляю: ${safeText}`);
+
+  try {
+    // Метод 1: Використовуємо client.chat() якщо існує
+    if (typeof client.chat === 'function') {
+      client.chat(safeText);
+      console.log("✅ Надіслано через client.chat()");
+      return;
+    }
+  } catch (e) {
+    console.log("⚠️ client.chat() не працює:", e.message);
+  }
+
+  try {
+    // Метод 2: Низькорівневий text пакет
+    const textPacket = {
+      type: 'chat',
+      needs_translation: false,
+      source_name: client.username || CONFIG.username,
+      xuid: client.profile?.xuid || '',
+      platform_chat_id: '',
+      message: safeText
+    };
+    
+    console.log("📦 Пакет:", JSON.stringify(textPacket));
+    client.queue('text', textPacket);
+    console.log("✅ Пакет в черзі");
+  } catch (e) {
+    console.error("❌ Помилка:", e.message);
+  }
+}
+
+// ===== GEMINI API =====
 async function queryGemini(prompt, username) {
   const API_KEY = process.env.GOOGLE_API_KEY;
   if (!API_KEY) return "Немає ключа";
@@ -66,11 +100,12 @@ async function queryGemini(prompt, username) {
   try {
     const res = await axios.post(
       `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.aiModel}:generateContent?key=${API_KEY}`,
-      { contents: [{ parts: [{ text: `Коротко українською без емоджі. ${username}: ${prompt}` }] }] },
+      { contents: [{ parts: [{ text: `Ти гравець Minecraft. Українська. Без емоджі. Коротко. Питання від ${username}: ${prompt}` }] }] },
       { headers: { "Content-Type": "application/json" }, timeout: 10000 }
     );
     return res.data?.candidates?.[0]?.content?.parts?.[0]?.text || "Не знаю";
   } catch (e) {
+    console.error("❌ API:", e.response?.status || e.message);
     return "Помилка";
   }
 }
