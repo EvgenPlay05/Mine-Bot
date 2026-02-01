@@ -49,12 +49,11 @@ client.on("text", async (packet) => {
   sendCommand(response);
 });
 
-// Функція затримки
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// ===== ФУНКЦІЯ ВІДПРАВКИ (ЯК В ДОКУМЕНТАЦІЇ) =====
+// ===== ФУНКЦІЯ ВІДПРАВКИ =====
 function sendCommand(text) {
   if (!text) return;
 
@@ -67,20 +66,35 @@ function sendCommand(text) {
   console.log(`📤 Команда /me: ${safeText}`);
 
   try {
-    // ТОЧНО ЯК В ДОКУМЕНТАЦІЇ (стара версія бібліотеки це підтримує)
+    // Мінімальна структура - тільки обов'язкові поля
     client.write("command_request", {
       command: `/me ${safeText}`,
       origin: {
-        type: 5,           // Число! (AutomationPlayer)
+        type: 'player',
         uuid: uuidv4(),
         request_id: uuidv4()
       },
       internal: false,
-      version: 86          // Число!
+      version: 72
     });
     console.log("✅ Команду надіслано");
   } catch (e) {
     console.error("❌ Помилка:", e.message);
+    
+    // Якщо command_request не працює - пробуємо text
+    try {
+      console.log("🔄 Пробую text пакет...");
+      client.write('text', {
+        type: 'chat',
+        needs_translation: false,
+        source_name: '',
+        xuid: '',
+        platform_chat_id: '',
+        message: safeText
+      });
+    } catch (e2) {
+      console.error("❌ Text теж не працює:", e2.message);
+    }
   }
 }
 
