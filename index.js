@@ -1,120 +1,125 @@
 const bedrock = require("bedrock-protocol");
 const axios = require("axios");
 
-// ===== НАЛАШТУВАННЯ =====
 const CONFIG = {
   host: process.env.MC_HOST,
   port: Number(process.env.MC_PORT),
   username: process.env.MC_NAME,
-  aiModel: "gemini-2.5-flash", 
+  aiModel: "gemini-2.5-flash",
   offline: true
 };
 
 const client = bedrock.createClient(CONFIG);
 
 // ===== ПОДІЇ =====
-client.on("join", () => console.log(`✅ Бот ${CONFIG.username} успішно зайшов на сервер!`));
-client.on("spawn", () => console.log("🌍 Бот з'явився у світі"));
+client.on("join", () => console.log(`✅ Бот ${CONFIG.username} на сервері!`));
+client.on("spawn", () => console.log("🌍 Бот заспавнився"));
 
 client.on("disconnect", (packet) => {
-  console.log("❌ ВІДКЛЮЧЕНО СЕРВЕРОМ:", packet.reason || "Невідома причина");
+  console.log("❌ ВІДКЛЮЧЕНО:", packet.reason || "Невідома причина");
 });
 
 client.on("error", (err) => {
-  if (err.message && err.message.includes('timeout')) return;
-  console.error("⚠️ Помилка клієнта:", err.message);
+  if (err.message?.includes('timeout')) return;
+  console.error("⚠️ Помилка:", err.message);
 });
 
-// ===== ОБРОБНИК ЧАТУ =====
+// ===== ЧАТ =====
 client.on("text", async (packet) => {
-  // Фільтрація сміття
-  if (packet.type === 'json' || packet.type === 'system' || packet.type === 'popup') return;
+  // Фільтруємо системні пакети
+  if (['json', 'system', 'popup', 'jukebox_popup'].includes(packet.type)) return;
 
   let sender = packet.source_name;
   let message = packet.message;
 
-  // Обробка для Aternos (Translation packet)
+  // Розбираємо translation-пакет (стандарт для серверів)
   if (packet.type === 'translation' && Array.isArray(packet.parameters) && packet.parameters.length >= 2) {
     sender = packet.parameters[0];
     message = packet.parameters[1];
   }
 
-  // Ігноруємо самого бота та пусті повідомлення
+  // Ігноруємо себе та пусті повідомлення
   if (!sender || sender === client.username || !message) return;
 
-  // Очистка повідомлення
-  const cleanMessage = String(message).replace(/§./g, '').trim();
+  // Чистимо вхідне повідомлення від кодів кольорів (§)
+  const cleanMsg = String(message).replace(/§./g, '').trim();
 
-  // Логування вхідного повідомлення
-  console.log(`💬 [${sender}]: ${cleanMessage}`);
+  console.log(`💬 [${sender}]: ${cleanMsg}`);
 
-  // Перевірка команди
-  if (!cleanMessage.toLowerCase().startsWith("!ai")) return;
+  // Команда !ai
+  if (!cleanMsg.toLowerCase().startsWith("!ai")) return;
+  const prompt = cleanMsg.slice(3).trim();
+  if (!prompt) return;
 
-  const prompt = cleanMessage.slice(3).trim();
-  if (!prompt) return; // Ігноруємо пусті !ai
-
-  console.log(`⏳ Обробляю запит від ${sender}...`);
+  console.log(`⏳ Думаю...`);
 
   // Запит до AI
-  const aiResponse = await queryGemini(prompt, sender);
-  
-  // Затримка перед відповіддю (імітація друку + захист від спаму)
-  setTimeout(() => {
-    sendChatMessage(aiResponse);
-  }, 1500); 
+  const response = await queryGemini(prompt, sender);
+
+  // Затримка 2с перед відправкою (анти-спам)
+  setTimeout(() => sendChatMessage(response), 2000);
 });
 
-// ===== ВИПРАВЛЕНА ФУНКЦІЯ ВІДПРАВКИ =====
+// ===== ВІДПРАВКА (MAX SECURITY) =====
 function sendChatMessage(text) {
   if (!text) return;
 
+  // 1. Прибираємо Markdown
   let safeText = String(text)
-    .replace(/\*\*/g, "") 
-    .replace(/\*/g, "")   
-    .replace(/`/g, "")    
-    .replace(/\n/g, " ")  
-    .trim();
+    .replace(/\*\*/g, "")
+    .replace(/\*/g, "")
+    .replace(/`/g, "")
+    .replace(/\n/g, " ");
 
-  if (safeText.length > 250) safeText = safeText.substring(0, 245) + "...";
+  // 2. ЖОРСТКИЙ ФІЛЬТР: Залишаємо тільки букви (всіх мов), цифри, пробіли і знаки пунктуації.
+  // Цей RegEx видалить всі емоджі та спецсимволи.
+  safeText = safeText.replace(/[^\p{L}\p{N}\p{P}\p{Z}]/gu, "");
+
+  // 3. Обрізаємо
+  safeText = safeText.trim().substring(0, 200);
 
   console.log(`📤 Відправляю: ${safeText}`);
 
   try {
-    // 🔥 ГОЛОВНЕ ВИПРАВЛЕННЯ ТУТ 🔥
-    // source_name має бути ПУСТИМ, щоб сервер не сварився на "bad_packet"
     client.queue("text", {
-      type: "chat", 
+      type: "chat",
       needs_translation: false,
-      source_name: "", // <--- ЗАЛИШАЄМО ПУСТИМ!
-      xuid: "",
+      source_name: client.username, // Обов'язково нік бота
+      xuid: "",                     // ПУСТИЙ РЯДОК (згідно документації для offline ботів)
       platform_chat_id: "",
       message: safeText
     });
   } catch (e) {
-    console.error("❌ Помилка відправки:", e.message);
+    console.error("❌ Помилка черги:", e.message);
   }
 }
 
-// ===== GEMINI API =====
+// ===== AI ЗАПИТ =====
 async function queryGemini(prompt, username) {
   const API_KEY = process.env.GOOGLE_API_KEY;
-  if (!API_KEY) return "❌ Немає ключа API";
+  if (!API_KEY) return "Немає ключа";
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.aiModel}:generateContent?key=${API_KEY}`;
 
   try {
     const res = await axios.post(url, {
-      contents: [{ 
-        parts: [{ 
-          text: `Ти гравець Minecraft. Відповідай українською, весело, дуже коротко (макс 10-15 слів). Питання від ${username}: ${prompt}` 
-        }] 
+      contents: [{
+        parts: [{
+          // СУВОРА ІНСТРУКЦІЯ
+          text: `Ти гравець Minecraft (нік ${CONFIG.username}).
+          Правила:
+          1. Тільки текст. НІЯКИХ ЕМОДЖІ ❌. НІЯКИХ СМАЙЛИКІВ ❌.
+          2. Без форматування (жирний, курсив - заборонено).
+          3. Мова: Українська.
+          4. Довжина: Максимум 1 коротке речення.
+          
+          Питання від ${username}: ${prompt}`
+        }]
       }]
-    }, { headers: { "Content-Type": "application/json" }, timeout: 10000 });
+    }, { headers: { "Content-Type": "application/json" }, timeout: 8000 });
 
-    return res.data?.candidates?.[0]?.content?.parts?.[0]?.text || "🤖 Хм...";
+    return res.data?.candidates?.[0]?.content?.parts?.[0]?.text || "Не знаю";
   } catch (e) {
-    console.error("💥 AI Error:", e.response?.status);
-    return "❌ Щось пішло не так.";
+    return "Помилка";
   }
 }
