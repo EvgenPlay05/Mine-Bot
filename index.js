@@ -22,32 +22,26 @@ client.on("disconnect", (packet) => {
 });
 
 client.on("error", (err) => {
-  // Ігноруємо таймаути
   if (err.message && err.message.includes('timeout')) return;
-  console.error("⚠️ Помилка клієнта:", err.message);
 });
 
 // ===== ОБРОБНИК ЧАТУ =====
 client.on("text", async (packet) => {
-  // Фільтрація
   if (['json', 'system', 'popup'].includes(packet.type)) return;
 
   let sender = packet.source_name;
   let message = packet.message;
 
-  // Обробка Translation (для Aternos)
   if (packet.type === 'translation' && Array.isArray(packet.parameters) && packet.parameters.length >= 2) {
     sender = packet.parameters[0];
     message = packet.parameters[1];
   }
 
-  // Ігноруємо себе та пусті повідомлення
   if (!sender || sender === client.username || !message || sender === "Server") return;
 
   const cleanMsg = String(message).replace(/§./g, '').trim();
   console.log(`💬 [${sender}]: ${cleanMsg}`);
 
-  // Команда !ai
   if (!cleanMsg.toLowerCase().startsWith("!ai")) return;
   const prompt = cleanMsg.slice(3).trim();
   if (!prompt) return;
@@ -56,15 +50,13 @@ client.on("text", async (packet) => {
 
   const response = await queryGemini(prompt, sender);
 
-  // Затримка 2с
   setTimeout(() => sendCommand(response), 2000);
 });
 
-// ===== ФУНКЦІЯ ВІДПРАВКИ (ЯК В ДОКУМЕНТАЦІЇ) =====
+// ===== ФУНКЦІЯ ВІДПРАВКИ =====
 function sendCommand(text) {
   if (!text) return;
 
-  // Чистка тексту
   let safeText = String(text)
     .replace(/[^\p{L}\p{N}\p{P}\p{Z}]/gu, "") 
     .replace(/["\\]/g, "") 
@@ -74,18 +66,19 @@ function sendCommand(text) {
   console.log(`📤 Відправляю команду /me: ${safeText}`);
 
   try {
-    const cmd = `/me ${safeText}`;
-
-    // ВИКОРИСТОВУЄМО ПАРАМЕТРИ З ДОКУМЕНТАЦІЇ
     client.queue('command_request', {
-      command: cmd,
+      command: `/me ${safeText}`,
       origin: {
-        type: 5,             // Як ти просив (Automation Player)
-        uuid: uuidv4(),      // Генеруємо UUID
-        request_id: uuidv4() // Генеруємо Request ID
+        // У версії 1.21 бібліотека вимагає РЯДОК.
+        // Число 5 відповідає рядку 'automation_player'
+        type: 'automation_player', 
+        
+        uuid: uuidv4(),
+        request_id: uuidv4(),
+        player_entity_id: '0' // Іноді потрібне для automation_player
       },
       internal: false,
-      version: 86            // Як ти просив
+      version: 86 // Твоя вимога виконана
     });
   } catch (e) {
     console.error("❌ Помилка команди:", e.message);
@@ -103,12 +96,7 @@ async function queryGemini(prompt, username) {
     const res = await axios.post(url, {
       contents: [{
         parts: [{
-          text: `Ти гравець у Minecraft.
-          Правила:
-          1. БЕЗ ЕМОДЖІ!
-          2. Українська мова.
-          3. Макс 1 речення.
-          Питання від ${username}: ${prompt}`
+          text: `Ти гравець у Minecraft. Українська мова. БЕЗ ЕМОДЖІ. Коротко. Питання від ${username}: ${prompt}`
         }]
       }]
     }, { headers: { "Content-Type": "application/json" }, timeout: 8000 });
