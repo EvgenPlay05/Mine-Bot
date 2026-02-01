@@ -2,7 +2,6 @@ const bedrock = require("bedrock-protocol");
 const axios = require("axios");
 const { v4: uuidv4 } = require('uuid');
 
-// ===== НАЛАШТУВАННЯ =====
 const CONFIG = {
   host: process.env.MC_HOST,
   port: Number(process.env.MC_PORT),
@@ -16,16 +15,10 @@ const client = bedrock.createClient(CONFIG);
 // ===== ПОДІЇ =====
 client.on("join", () => console.log(`✅ Бот ${CONFIG.username} успішно зайшов на сервер!`));
 client.on("spawn", () => console.log("🌍 Бот заспавнився"));
+client.on("disconnect", (packet) => console.log("❌ ВІДКЛЮЧЕНО:", packet.reason || "Невідома причина"));
+client.on("error", (err) => { if (!err.message?.includes('timeout')) console.error("⚠️ Помилка:", err.message); });
 
-client.on("disconnect", (packet) => {
-  console.log("❌ ВІДКЛЮЧЕНО:", packet.reason || "Невідома причина");
-});
-
-client.on("error", (err) => {
-  if (err.message && err.message.includes('timeout')) return;
-});
-
-// ===== ОБРОБНИК ЧАТУ =====
+// ===== ЧАТ =====
 client.on("text", async (packet) => {
   if (['json', 'system', 'popup'].includes(packet.type)) return;
 
@@ -47,9 +40,7 @@ client.on("text", async (packet) => {
   if (!prompt) return;
 
   console.log(`⏳ Думаю...`);
-
   const response = await queryGemini(prompt, sender);
-
   setTimeout(() => sendCommand(response), 2000);
 });
 
@@ -69,16 +60,19 @@ function sendCommand(text) {
     client.queue('command_request', {
       command: `/me ${safeText}`,
       origin: {
-        // У версії 1.21 бібліотека вимагає РЯДОК.
-        // Число 5 відповідає рядку 'automation_player'
-        type: 'automation_player', 
+        // 'player' = це і є тип 0, але рядком.
+        // 'automation_player' = це тип 5.
+        // Для Aternos краще 'player', щоб не кікнуло.
+        type: 'player', 
         
         uuid: uuidv4(),
         request_id: uuidv4(),
-        player_entity_id: '0' // Іноді потрібне для automation_player
+        
+        // 🔥 ЦЕ ПОЛЕ ВИРІШУЄ ПРОБЛЕМУ 'undefined'
+        player_entity_id: '0' 
       },
-      internal: false,
-      version: 86 // Твоя вимога виконана
+      internal: false
+      // 🔥 ВЕРСІЮ ПРИБРАНО (вона викликала помилку Number vs String)
     });
   } catch (e) {
     console.error("❌ Помилка команди:", e.message);
@@ -89,20 +83,10 @@ function sendCommand(text) {
 async function queryGemini(prompt, username) {
   const API_KEY = process.env.GOOGLE_API_KEY;
   if (!API_KEY) return "Немає ключа";
-
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.aiModel}:generateContent?key=${API_KEY}`;
-
   try {
-    const res = await axios.post(url, {
-      contents: [{
-        parts: [{
-          text: `Ти гравець у Minecraft. Українська мова. БЕЗ ЕМОДЖІ. Коротко. Питання від ${username}: ${prompt}`
-        }]
-      }]
+    const res = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.aiModel}:generateContent?key=${API_KEY}`, {
+      contents: [{ parts: [{ text: `Ти гравець Minecraft. Українська мова. Без емоджі. Коротко. Питання від ${username}: ${prompt}` }] }]
     }, { headers: { "Content-Type": "application/json" }, timeout: 8000 });
-
     return res.data?.candidates?.[0]?.content?.parts?.[0]?.text || "Не знаю";
-  } catch (e) {
-    return "Помилка API";
-  }
+  } catch (e) { return "Помилка API"; }
 }
