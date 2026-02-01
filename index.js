@@ -11,8 +11,42 @@ const CONFIG = {
 
 const client = bedrock.createClient(CONFIG);
 
-client.on("join", () => console.log(`✅ Бот ${CONFIG.username} (OP) на сервері!`));
-client.on("spawn", () => console.log("🌍 Бот заспавнився"));
+client.on("join", () => {
+  console.log(`✅ Бот ${CONFIG.username} (OP) на сервері!`);
+});
+
+client.on("spawn", () => {
+  console.log("🌍 Бот заспавнився");
+  
+  // 🔥 ДЕБАГ: Виводимо схему пакету command_request
+  setTimeout(() => {
+    try {
+      console.log("=== ДЕБАГ СХЕМИ ===");
+      
+      // Спробуємо знайти схему через serializer
+      const serializer = client.serializer;
+      if (serializer && serializer.proto) {
+        const types = serializer.proto.types;
+        if (types.command_request) {
+          console.log("command_request:", JSON.stringify(types.command_request, null, 2));
+        }
+        if (types.CommandOrigin) {
+          console.log("CommandOrigin:", JSON.stringify(types.CommandOrigin, null, 2));
+        }
+        if (types.CommandOriginData) {
+          console.log("CommandOriginData:", JSON.stringify(types.CommandOriginData, null, 2));
+        }
+      }
+      
+      // Альтернативний спосіб
+      console.log("Client keys:", Object.keys(client).join(", "));
+      
+    } catch (e) {
+      console.log("Помилка дебагу:", e.message);
+    }
+  }, 2000);
+});
+
 client.on("disconnect", (p) => console.log("❌ ВІДКЛЮЧЕНО:", p.reason || "Невідома причина"));
 client.on("error", (e) => { if (!e.message?.includes('timeout')) console.error("⚠️", e.message); });
 
@@ -40,45 +74,11 @@ client.on("text", async (packet) => {
   console.log(`⏳ Думаю...`);
   
   const response = await queryGemini(prompt, sender);
+  console.log(`🤖 Відповідь: ${response}`);
   
-  await sleep(2000);
-  
-  sendCommand(response);
+  // Поки не відправляємо - чекаємо на дебаг
+  console.log("⚠️ Дебаг режим - не відправляю");
 });
-
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-// ===== ВІДПРАВКА КОМАНДИ (згідно з протоколом 1.21.130) =====
-function sendCommand(text) {
-  if (!text) return;
-
-  let safeText = String(text)
-    .replace(/[^\p{L}\p{N}\p{P}\p{Z}]/gu, "")
-    .replace(/["\\]/g, "")
-    .trim()
-    .substring(0, 150);
-
-  console.log(`📤 Команда /say: ${safeText}`);
-
-  try {
-    // Структура згідно з https://prismarinejs.github.io/minecraft-data/?v=bedrock_1.21.130&d=protocol
-    client.write('command_request', {
-      command: `/say ${safeText}`,
-      origin: {
-        type: 'player',              // CommandOriginType enum як рядок
-        uuid: '00000000-0000-0000-0000-000000000000', // Фіксований UUID
-        request_id: '00000000-0000-0000-0000-000000000000' // request_id це STRING, не UUID
-      },
-      internal: false,
-      version: 66                    // varint - має бути число
-    });
-    console.log("✅ Команду надіслано");
-  } catch (e) {
-    console.error("❌ Помилка:", e.message);
-  }
-}
 
 // ===== GEMINI API =====
 async function queryGemini(prompt, username) {
