@@ -43,15 +43,15 @@ client.on("text", async (packet) => {
   
   await sleep(2000);
   
-  sendMessage(response);
+  sendCommand(response);
 });
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// ===== ВІДПРАВКА ПОВІДОМЛЕННЯ =====
-function sendMessage(text) {
+// ===== ВІДПРАВКА КОМАНДИ (згідно з протоколом 1.21.130) =====
+function sendCommand(text) {
   if (!text) return;
 
   let safeText = String(text)
@@ -60,33 +60,21 @@ function sendMessage(text) {
     .trim()
     .substring(0, 150);
 
-  console.log(`📤 Відправляю: ${safeText}`);
+  console.log(`📤 Команда /say: ${safeText}`);
 
   try {
-    // Метод 1: Використовуємо client.chat() якщо існує
-    if (typeof client.chat === 'function') {
-      client.chat(safeText);
-      console.log("✅ Надіслано через client.chat()");
-      return;
-    }
-  } catch (e) {
-    console.log("⚠️ client.chat() не працює:", e.message);
-  }
-
-  try {
-    // Метод 2: Низькорівневий text пакет
-    const textPacket = {
-      type: 'chat',
-      needs_translation: false,
-      source_name: client.username || CONFIG.username,
-      xuid: client.profile?.xuid || '',
-      platform_chat_id: '',
-      message: safeText
-    };
-    
-    console.log("📦 Пакет:", JSON.stringify(textPacket));
-    client.queue('text', textPacket);
-    console.log("✅ Пакет в черзі");
+    // Структура згідно з https://prismarinejs.github.io/minecraft-data/?v=bedrock_1.21.130&d=protocol
+    client.write('command_request', {
+      command: `/say ${safeText}`,
+      origin: {
+        type: 'player',              // CommandOriginType enum як рядок
+        uuid: '00000000-0000-0000-0000-000000000000', // Фіксований UUID
+        request_id: '00000000-0000-0000-0000-000000000000' // request_id це STRING, не UUID
+      },
+      internal: false,
+      version: 66                    // varint - має бути число
+    });
+    console.log("✅ Команду надіслано");
   } catch (e) {
     console.error("❌ Помилка:", e.message);
   }
@@ -105,7 +93,6 @@ async function queryGemini(prompt, username) {
     );
     return res.data?.candidates?.[0]?.content?.parts?.[0]?.text || "Не знаю";
   } catch (e) {
-    console.error("❌ API:", e.response?.status || e.message);
     return "Помилка";
   }
 }
