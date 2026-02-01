@@ -27,13 +27,13 @@ client.on("error", (err) => {
 
 // ===== ОБРОБНИК ЧАТУ =====
 client.on("text", async (packet) => {
-  // Фільтрація сміття
-  if (['json', 'system', 'popup', 'jukebox_popup'].includes(packet.type)) return;
+  // Фільтрація
+  if (['json', 'system', 'popup'].includes(packet.type)) return;
 
   let sender = packet.source_name;
   let message = packet.message;
 
-  // Обробка Translation (для Aternos)
+  // Обробка Translation (стандарт для Bedrock серверів)
   if (packet.type === 'translation' && Array.isArray(packet.parameters) && packet.parameters.length >= 2) {
     sender = packet.parameters[0];
     message = packet.parameters[1];
@@ -42,7 +42,6 @@ client.on("text", async (packet) => {
   // Ігноруємо себе, сервер та пусті повідомлення
   if (!sender || sender === client.username || !message || sender === "Server") return;
 
-  // Очистка
   const cleanMsg = String(message).replace(/§./g, '').trim();
   console.log(`💬 [${sender}]: ${cleanMsg}`);
 
@@ -53,10 +52,9 @@ client.on("text", async (packet) => {
 
   console.log(`⏳ Думаю...`);
 
-  // Запит до AI
   const response = await queryGemini(prompt, sender);
 
-  // Затримка та відправка
+  // Затримка 2с
   setTimeout(() => sendCommand(response), 2000);
 });
 
@@ -64,7 +62,7 @@ client.on("text", async (packet) => {
 function sendCommand(text) {
   if (!text) return;
 
-  // Чистка тексту від емоджі та лапок
+  // Чистка тексту
   let safeText = String(text)
     .replace(/[^\p{L}\p{N}\p{P}\p{Z}]/gu, "") // Видаляємо емоджі
     .replace(/["\\]/g, "") // Видаляємо лапки
@@ -79,12 +77,12 @@ function sendCommand(text) {
     client.queue('command_request', {
       command: cmd,
       origin: {
-        type: 'player', // БУЛО 0, СТАЛО 'player' (це важливо!)
-        uuid: uuidv4(),
+        type: 'player',  // Це правильно (рядок)
+        uuid: uuidv4(),  // Це правильно (рядок-UUID)
         request_id: uuidv4(),
       },
-      internal: false,
-      version: 66
+      internal: false
+      // 🔥 ВИДАЛЕНО: version: 66 (це викликало помилку)
     });
   } catch (e) {
     console.error("❌ Помилка команди:", e.message);
