@@ -6,7 +6,8 @@ const CONFIG = {
   host: process.env.MC_HOST,
   port: Number(process.env.MC_PORT),
   username: process.env.MC_NAME,
-  aiModel: "gemini-2.5-flash",
+  // Змінив модель на ту, що точно працює з твого списку
+  aiModel: "gemini-2.5-flash-lite",
   offline: true
 };
 
@@ -66,7 +67,7 @@ function sendCommand(text) {
   console.log(`📤 Команда /me: ${safeText}`);
 
   try {
-    // Мінімальна структура - тільки обов'язкові поля
+    // ВСІ ПОЛЯ ЯК РЯДКИ
     client.write("command_request", {
       command: `/me ${safeText}`,
       origin: {
@@ -75,48 +76,63 @@ function sendCommand(text) {
         request_id: uuidv4()
       },
       internal: false,
-      version: 72
+      version: '52' // РЯДОК!
     });
     console.log("✅ Команду надіслано");
   } catch (e) {
-    console.error("❌ Помилка:", e.message);
+    console.error("❌ command_request помилка:", e.message);
     
-    // Якщо command_request не працює - пробуємо text
+    // Fallback - пробуємо без version взагалі
     try {
-      console.log("🔄 Пробую text пакет...");
-      client.write('text', {
-        type: 'chat',
-        needs_translation: false,
-        source_name: '',
-        xuid: '',
-        platform_chat_id: '',
-        message: safeText
+      console.log("🔄 Пробую без version...");
+      client.write("command_request", {
+        command: `/me ${safeText}`,
+        origin: {
+          type: 'player',
+          uuid: uuidv4(),
+          request_id: uuidv4()
+        },
+        internal: false
       });
     } catch (e2) {
-      console.error("❌ Text теж не працює:", e2.message);
+      console.error("❌ Все одно помилка:", e2.message);
     }
   }
 }
 
-// ===== GEMINI API =====
+// ===== GEMINI API (з fallback на інші моделі) =====
 async function queryGemini(prompt, username) {
   const API_KEY = process.env.GOOGLE_API_KEY;
   if (!API_KEY) return "Немає ключа";
 
-  try {
-    console.log(`🔄 Запит до AI...`);
-    const res = await axios.post(
-      `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.aiModel}:generateContent?key=${API_KEY}`,
-      {
-        contents: [{ parts: [{ text: `Ти гравець Minecraft. Українська. Без емоджі. Коротко. Питання від ${username}: ${prompt}` }] }]
-      },
-      { headers: { "Content-Type": "application/json" }, timeout: 15000 }
-    );
-    const answer = res.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    console.log(`✅ AI: ${answer}`);
-    return answer || "Не знаю";
-  } catch (e) {
-    console.error("❌ API помилка:", e.response?.status || e.message);
-    return "Помилка";
+  // Список моделей для fallback (всі з твого списку ✅)
+  const models = [
+    "gemini-2.5-flash-lite",
+    "gemini-flash-latest", 
+    "gemma-3-4b-it",
+    "gemma-3n-e4b-it"
+  ];
+
+  for (const model of models) {
+    try {
+      console.log(`🔄 Пробую модель: ${model}`);
+      const res = await axios.post(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${API_KEY}`,
+        {
+          contents: [{ parts: [{ text: `Ти гравець Minecraft. Українська. Без емоджі. Коротко. Питання від ${username}: ${prompt}` }] }]
+        },
+        { headers: { "Content-Type": "application/json" }, timeout: 15000 }
+      );
+      const answer = res.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (answer) {
+        console.log(`✅ [${model}]: ${answer}`);
+        return answer;
+      }
+    } catch (e) {
+      console.log(`⚠️ ${model} не працює: ${e.response?.status || e.message}`);
+      // Продовжуємо до наступної моделі
+    }
   }
+  
+  return "Всі моделі зайняті";
 }
