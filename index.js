@@ -1,5 +1,6 @@
 const bedrock = require("bedrock-protocol");
 const axios = require("axios");
+const { v4: uuidv4 } = require('uuid');
 
 const CONFIG = {
   host: process.env.MC_HOST,
@@ -39,79 +40,69 @@ client.on("text", async (packet) => {
   if (!prompt) return;
 
   console.log(`⏳ Думаю...`);
+  
   const response = await queryGemini(prompt, sender);
   
-  // Затримка 3 секунди (щоб сервер не кікнув за спам)
-  setTimeout(() => sendChat(response), 3000);
+  // Затримка 3 секунди
+  await sleep(3000);
+  
+  sendCommand(response);
 });
 
-// ===== ПРОСТА ФУНКЦІЯ ВІДПРАВКИ (TEXT ПАКЕТ) =====
-function sendChat(text) {
+// Функція затримки
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ===== ФУНКЦІЯ ВІДПРАВКИ (ЯК В ДОКУМЕНТАЦІЇ) =====
+function sendCommand(text) {
   if (!text) return;
 
   let safeText = String(text)
-    .replace(/[^\p{L}\p{N}\p{P}\p{Z}]/gu, "") // Видаляємо емоджі
+    .replace(/[^\p{L}\p{N}\p{P}\p{Z}]/gu, "") 
     .replace(/["\\]/g, "") 
-    .replace(/\n/g, " ")
     .trim()
     .substring(0, 150);
 
-  console.log(`📤 Відправляю в чат: ${safeText}`);
+  console.log(`📤 Команда /me: ${safeText}`);
 
   try {
-    // Простий text пакет (без command_request)
-    client.write('text', {
-      type: 'chat',
-      needs_translation: false,
-      source_name: client.username,
-      xuid: '',
-      platform_chat_id: '',
-      message: safeText
+    // ТОЧНО ЯК В ДОКУМЕНТАЦІЇ (стара версія бібліотеки це підтримує)
+    client.write("command_request", {
+      command: `/me ${safeText}`,
+      origin: {
+        type: 5,           // Число! (AutomationPlayer)
+        uuid: uuidv4(),
+        request_id: uuidv4()
+      },
+      internal: false,
+      version: 86          // Число!
     });
-    console.log("✅ Пакет надіслано успішно");
+    console.log("✅ Команду надіслано");
   } catch (e) {
-    console.error("❌ Помилка відправки:", e.message);
+    console.error("❌ Помилка:", e.message);
   }
 }
 
-// ===== GEMINI API (з детальним логуванням) =====
+// ===== GEMINI API =====
 async function queryGemini(prompt, username) {
   const API_KEY = process.env.GOOGLE_API_KEY;
-  
-  if (!API_KEY) {
-    console.error("❌ GOOGLE_API_KEY не знайдено!");
-    return "Немає ключа API";
-  }
-
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.aiModel}:generateContent?key=${API_KEY}`;
+  if (!API_KEY) return "Немає ключа";
 
   try {
-    console.log(`🔄 Запит до Gemini...`);
-    
-    const res = await axios.post(url, {
-      contents: [{ 
-        parts: [{ 
-          text: `Ти гравець Minecraft. Українська мова. Без емоджі. Коротко (1 речення). Питання від ${username}: ${prompt}` 
-        }] 
-      }]
-    }, { 
-      headers: { "Content-Type": "application/json" }, 
-      timeout: 15000 // Збільшив таймаут до 15 сек
-    });
-
+    console.log(`🔄 Запит до AI...`);
+    const res = await axios.post(
+      `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.aiModel}:generateContent?key=${API_KEY}`,
+      {
+        contents: [{ parts: [{ text: `Ти гравець Minecraft. Українська. Без емоджі. Коротко. Питання від ${username}: ${prompt}` }] }]
+      },
+      { headers: { "Content-Type": "application/json" }, timeout: 15000 }
+    );
     const answer = res.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    console.log(`✅ Відповідь AI: ${answer}`);
-    return answer || "Не знаю що сказати";
-    
+    console.log(`✅ AI: ${answer}`);
+    return answer || "Не знаю";
   } catch (e) {
-    // Детальне логування помилки
-    if (e.response) {
-      console.error(`❌ API Error ${e.response.status}:`, JSON.stringify(e.response.data));
-    } else if (e.code === 'ECONNABORTED') {
-      console.error("❌ Таймаут запиту до AI");
-    } else {
-      console.error("❌ Помилка:", e.message);
-    }
-    return "Щось пішло не так";
+    console.error("❌ API помилка:", e.response?.status || e.message);
+    return "Помилка";
   }
 }
