@@ -6,15 +6,19 @@ const CONFIG = {
   port: Number(process.env.MC_PORT),
   username: process.env.MC_NAME,
   aiModel: "gemini-2.5-flash-lite",
-  offline: true
+  // 🔥 ГОЛОВНА ЗМІНА: Вимикаємо offline режим
+  offline: false
 };
 
 const client = bedrock.createClient(CONFIG);
 
-client.on("join", () => console.log(`✅ Бот ${CONFIG.username} (OP) на сервері!`));
+// При першому запуску бібліотека відкриє посилання для авторизації Microsoft
+// Після авторизації токен зберігається і наступні рази входить автоматично
+
+client.on("join", () => console.log(`✅ Бот ${CONFIG.username} на сервері!`));
 client.on("spawn", () => console.log("🌍 Бот заспавнився"));
 client.on("disconnect", (p) => console.log("❌ ВІДКЛЮЧЕНО:", p.reason || "Невідома причина"));
-client.on("error", (e) => { if (!e.message?.includes('timeout')) console.error("⚠️", e.message); });
+client.on("error", (e) => console.error("⚠️", e.message));
 
 // ===== ЧАТ =====
 client.on("text", async (packet) => {
@@ -43,76 +47,37 @@ client.on("text", async (packet) => {
   
   await sleep(2000);
   
-  sendCommand(response);
+  // 🔥 Тепер можна просто писати в чат!
+  sendChat(response);
 });
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// ===== ВІДПРАВКА КОМАНДИ (Повна структура для 1.21+) =====
-function sendCommand(text) {
+// ===== ПРОСТА ВІДПРАВКА (працює з авторизованим ботом) =====
+function sendChat(text) {
   if (!text) return;
 
   let safeText = String(text)
     .replace(/[^\p{L}\p{N}\p{P}\p{Z}]/gu, "")
-    .replace(/["\\]/g, "")
     .trim()
-    .substring(0, 150);
+    .substring(0, 200);
 
-  console.log(`📤 Команда /me: ${safeText}`);
+  console.log(`📤 Чат: ${safeText}`);
 
   try {
-    client.write('command_request', {
-      command: `/me ${safeText}`,
-      origin: {
-        type: 'player',
-        uuid: '00000000-0000-0000-0000-000000000000',
-        request_id: 'req-001',
-        player_entity_id: '1'  // 🔥 ЦЕ ПОЛЕ БУЛО ВІДСУТНЄ
-      },
-      internal: false,
-      version: '1'  // 🔥 Спробуємо як рядок
+    client.queue('text', {
+      type: 'chat',
+      needs_translation: false,
+      source_name: client.username,
+      xuid: client.profile?.xuid || '',
+      platform_chat_id: '',
+      message: safeText
     });
-    console.log("✅ Варіант 1 спрацював");
+    console.log("✅ Надіслано");
   } catch (e) {
-    console.error("❌ Варіант 1:", e.message);
-    
-    try {
-      // Варіант 2: Інші значення
-      client.write('command_request', {
-        command: `/me ${safeText}`,
-        origin: {
-          type: 0,  // Число замість рядка
-          uuid: '00000000-0000-0000-0000-000000000000',
-          request_id: 'req',
-          player_entity_id: 0  // Число
-        },
-        internal: false,
-        version: 1
-      });
-      console.log("✅ Варіант 2 спрацював");
-    } catch (e2) {
-      console.error("❌ Варіант 2:", e2.message);
-      
-      try {
-        // Варіант 3: Всі рядки
-        client.write('command_request', {
-          command: `/me ${safeText}`,
-          origin: {
-            type: 'player',
-            uuid: '',
-            request_id: '',
-            player_entity_id: ''
-          },
-          internal: false,
-          version: ''
-        });
-        console.log("✅ Варіант 3 спрацював");
-      } catch (e3) {
-        console.error("❌ Варіант 3:", e3.message);
-      }
-    }
+    console.error("❌ Помилка:", e.message);
   }
 }
 
