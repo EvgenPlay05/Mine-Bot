@@ -1,6 +1,6 @@
 const bedrock = require("bedrock-protocol");
 const axios = require("axios");
-const { v4: uuidv4 } = require('uuid'); // Потрібно для генерації ID пакетів
+const { v4: uuidv4 } = require('uuid');
 
 // ===== НАЛАШТУВАННЯ =====
 const CONFIG = {
@@ -14,7 +14,7 @@ const CONFIG = {
 const client = bedrock.createClient(CONFIG);
 
 // ===== ПОДІЇ =====
-client.on("join", () => console.log(`✅ Бот ${CONFIG.username} зайшов на сервер!`));
+client.on("join", () => console.log(`✅ Бот ${CONFIG.username} успішно зайшов на сервер!`));
 client.on("spawn", () => console.log("🌍 Бот заспавнився"));
 
 client.on("disconnect", (packet) => {
@@ -22,18 +22,18 @@ client.on("disconnect", (packet) => {
 });
 
 client.on("error", (err) => {
-  if (err.message?.includes('timeout')) return;
+  if (err.message && err.message.includes('timeout')) return;
 });
 
 // ===== ОБРОБНИК ЧАТУ =====
 client.on("text", async (packet) => {
-  // Фільтруємо сміття
-  if (['json', 'system', 'popup'].includes(packet.type)) return;
+  // Фільтрація сміття
+  if (['json', 'system', 'popup', 'jukebox_popup'].includes(packet.type)) return;
 
   let sender = packet.source_name;
   let message = packet.message;
 
-  // Обробка для Aternos
+  // Обробка Translation (для Aternos)
   if (packet.type === 'translation' && Array.isArray(packet.parameters) && packet.parameters.length >= 2) {
     sender = packet.parameters[0];
     message = packet.parameters[1];
@@ -42,6 +42,7 @@ client.on("text", async (packet) => {
   // Ігноруємо себе, сервер та пусті повідомлення
   if (!sender || sender === client.username || !message || sender === "Server") return;
 
+  // Очистка
   const cleanMsg = String(message).replace(/§./g, '').trim();
   console.log(`💬 [${sender}]: ${cleanMsg}`);
 
@@ -52,25 +53,21 @@ client.on("text", async (packet) => {
 
   console.log(`⏳ Думаю...`);
 
+  // Запит до AI
   const response = await queryGemini(prompt, sender);
 
-  // Затримка 2с і відправка через КОМАНДУ
+  // Затримка та відправка
   setTimeout(() => sendCommand(response), 2000);
 });
 
-// ===== ВІДПРАВКА ЧЕРЕЗ COMMAND REQUEST (Найбезпечніший метод) =====
+// ===== ФУНКЦІЯ ВІДПРАВКИ (COMMAND REQUEST) =====
 function sendCommand(text) {
   if (!text) return;
 
-  // Чистка тексту від емоджі та символів, що ламають команди
-// ===== ВИПРАВЛЕНА ФУНКЦІЯ =====
-function sendCommand(text) {
-  if (!text) return;
-
-  // Чистка тексту (емоджі, лапки, слеші)
+  // Чистка тексту від емоджі та лапок
   let safeText = String(text)
     .replace(/[^\p{L}\p{N}\p{P}\p{Z}]/gu, "") // Видаляємо емоджі
-    .replace(/["\\]/g, "") // Видаляємо лапки, щоб не зламати JSON пакету
+    .replace(/["\\]/g, "") // Видаляємо лапки
     .trim()
     .substring(0, 150);
 
@@ -82,15 +79,12 @@ function sendCommand(text) {
     client.queue('command_request', {
       command: cmd,
       origin: {
-        // 🔥 ТУТ БУЛА ПОМИЛКА 🔥
-        // Було: type: 0
-        // Стало: type: 'player' (бібліотека вимагає рядок)
-        type: 'player', 
+        type: 'player', // БУЛО 0, СТАЛО 'player' (це важливо!)
         uuid: uuidv4(),
         request_id: uuidv4(),
       },
       internal: false,
-      version: 66 // Версія протоколу команд (можна спробувати прибрати, якщо не спрацює)
+      version: 66
     });
   } catch (e) {
     console.error("❌ Помилка команди:", e.message);
@@ -110,9 +104,9 @@ async function queryGemini(prompt, username) {
         parts: [{
           text: `Ти гравець у Minecraft.
           Правила:
-          1. СУВОРО БЕЗ ЕМОДЖІ!
+          1. БЕЗ ЕМОДЖІ!
           2. Українська мова.
-          3. Дуже коротко (1 речення).
+          3. Макс 1 речення.
           Питання від ${username}: ${prompt}`
         }]
       }]
@@ -120,7 +114,6 @@ async function queryGemini(prompt, username) {
 
     return res.data?.candidates?.[0]?.content?.parts?.[0]?.text || "Не знаю";
   } catch (e) {
-    return "Помилка";
+    return "Помилка API";
   }
 }
-
