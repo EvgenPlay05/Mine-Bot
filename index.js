@@ -1,99 +1,125 @@
 const bedrock = require("bedrock-protocol");
-const axios = require("axios");
 
 const CONFIG = {
   host: process.env.MC_HOST,
   port: Number(process.env.MC_PORT),
   username: process.env.MC_NAME,
-  aiModel: "gemini-2.5-flash-lite",
-  // 🔥 ГОЛОВНА ЗМІНА: Вимикаємо offline режим
-  offline: false
+  offline: true
 };
+
+console.log(`🔌 Підключаюсь до ${CONFIG.host}:${CONFIG.port}...`);
 
 const client = bedrock.createClient(CONFIG);
 
-// При першому запуску бібліотека відкриє посилання для авторизації Microsoft
-// Після авторизації токен зберігається і наступні рази входить автоматично
+let afkInterval = null;
+let isSpawned = false;
 
-client.on("join", () => console.log(`✅ Бот ${CONFIG.username} на сервері!`));
-client.on("spawn", () => console.log("🌍 Бот заспавнився"));
-client.on("disconnect", (p) => console.log("❌ ВІДКЛЮЧЕНО:", p.reason || "Невідома причина"));
-client.on("error", (e) => console.error("⚠️", e.message));
-
-// ===== ЧАТ =====
-client.on("text", async (packet) => {
-  if (['json', 'system', 'popup'].includes(packet.type)) return;
-
-  let sender = packet.source_name;
-  let message = packet.message;
-
-  if (packet.type === 'translation' && Array.isArray(packet.parameters) && packet.parameters.length >= 2) {
-    sender = packet.parameters[0];
-    message = packet.parameters[1];
-  }
-
-  if (!sender || sender === client.username || !message || sender === "Server") return;
-
-  const cleanMsg = String(message).replace(/§./g, '').trim();
-  console.log(`💬 [${sender}]: ${cleanMsg}`);
-
-  if (!cleanMsg.toLowerCase().startsWith("!ai")) return;
-  const prompt = cleanMsg.slice(3).trim();
-  if (!prompt) return;
-
-  console.log(`⏳ Думаю...`);
-  
-  const response = await queryGemini(prompt, sender);
-  
-  await sleep(2000);
-  
-  // 🔥 Тепер можна просто писати в чат!
-  sendChat(response);
+// ===== ПОДІЇ =====
+client.on("join", () => {
+  console.log(`✅ Бот ${CONFIG.username} зайшов на сервер!`);
 });
 
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+client.on("spawn", () => {
+  console.log("🌍 Бот заспавнився");
+  isSpawned = true;
+  startAntiAFK();
+});
+
+client.on("disconnect", (packet) => {
+  console.log("❌ Відключено:", packet.reason || "Невідома причина");
+  stopAntiAFK();
+  
+  // Спроба перепідключитися через 30 секунд
+  console.log("🔄 Перепідключення через 30 секунд...");
+  setTimeout(() => {
+    process.exit(1); // Railway автоматично перезапустить
+  }, 30000);
+});
+
+client.on("error", (err) => {
+  if (err.message && err.message.includes('timeout')) {
+    console.log("⚠️ Таймаут підключення");
+    return;
+  }
+  console.error("⚠️ Помилка:", err.message);
+});
+
+client.on("kick", (packet) => {
+  console.log("🦶 Кікнуто:", packet.message || "Невідома причина");
+  stopAntiAFK();
+});
+
+// ===== АНТИ-AFK =====
+function startAntiAFK() {
+  if (afkInterval) return;
+  
+  console.log("🏃 Анти-AFK запущено (рух кожні 30 секунд)");
+  
+  afkInterval = setInterval(() => {
+    if (!isSpawned) return;
+    
+    try {
+      // Рух голови (дивимось вліво-вправо)
+      const yaw = Math.random() * 360 - 180;  // -180 до 180
+      const pitch = Math.random() * 40 - 20;   // -20 до 20 (не дивимось надто вгору/вниз)
+      
+      client.queue('move_player', {
+        runtime_id: client.entityId || 1n,
+        position: {
+          x: client.position?.x || 0,
+          y: client.position?.y || 64,
+          z: client.position?.z || 0
+        },
+        pitch: pitch,
+        yaw: yaw,
+        head_yaw: yaw,
+        mode: 'normal',
+        on_ground: true,
+        ridden_runtime_id: 0n,
+        tick: 0n
+      });
+      
+      console.log(`🔄 Анти-AFK: поворот голови (yaw: ${yaw.toFixed(1)}°)`);
+    } catch (e) {
+      // Ігноруємо помилки руху
+    }
+  }, 30000); // Кожні 30 секунд
 }
 
-// ===== ПРОСТА ВІДПРАВКА (працює з авторизованим ботом) =====
-function sendChat(text) {
-  if (!text) return;
-
-  let safeText = String(text)
-    .replace(/[^\p{L}\p{N}\p{P}\p{Z}]/gu, "")
-    .trim()
-    .substring(0, 200);
-
-  console.log(`📤 Чат: ${safeText}`);
-
-  try {
-    client.queue('text', {
-      type: 'chat',
-      needs_translation: false,
-      source_name: client.username,
-      xuid: client.profile?.xuid || '',
-      platform_chat_id: '',
-      message: safeText
-    });
-    console.log("✅ Надіслано");
-  } catch (e) {
-    console.error("❌ Помилка:", e.message);
+function stopAntiAFK() {
+  if (afkInterval) {
+    clearInterval(afkInterval);
+    afkInterval = null;
+    console.log("⏹️ Анти-AFK зупинено");
   }
 }
 
-// ===== GEMINI API =====
-async function queryGemini(prompt, username) {
-  const API_KEY = process.env.GOOGLE_API_KEY;
-  if (!API_KEY) return "Немає ключа";
-
-  try {
-    const res = await axios.post(
-      `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.aiModel}:generateContent?key=${API_KEY}`,
-      { contents: [{ parts: [{ text: `Ти гравець Minecraft. Українська. Без емоджі. Коротко. Питання від ${username}: ${prompt}` }] }] },
-      { headers: { "Content-Type": "application/json" }, timeout: 10000 }
-    );
-    return res.data?.candidates?.[0]?.content?.parts?.[0]?.text || "Не знаю";
-  } catch (e) {
-    return "Помилка";
+// ===== ЗБЕРЕЖЕННЯ ПОЗИЦІЇ =====
+client.on("move_player", (packet) => {
+  // Оновлюємо позицію бота
+  if (packet.runtime_id === client.entityId) {
+    client.position = packet.position;
   }
-}
+});
+
+client.on("start_game", (packet) => {
+  client.entityId = packet.runtime_entity_id;
+  client.position = packet.player_position;
+  console.log(`📍 Позиція: X:${packet.player_position.x.toFixed(1)} Y:${packet.player_position.y.toFixed(1)} Z:${packet.player_position.z.toFixed(1)}`);
+});
+
+// ===== HEARTBEAT (Тримаємо з'єднання живим) =====
+setInterval(() => {
+  if (isSpawned) {
+    try {
+      client.queue('tick_sync', {
+        request_time: BigInt(Date.now()),
+        response_time: 0n
+      });
+    } catch (e) {
+      // Ігноруємо
+    }
+  }
+}, 10000); // Кожні 10 секунд
+
+console.log("🤖 Бот запущено!");
