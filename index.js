@@ -1,6 +1,8 @@
 const bedrock = require("bedrock-protocol");
 const axios = require("axios");
+const { v4: uuidv4 } = require('uuid'); // Потрібно для генерації ID пакетів
 
+// ===== НАЛАШТУВАННЯ =====
 const CONFIG = {
   host: process.env.MC_HOST,
   port: Number(process.env.MC_PORT),
@@ -12,7 +14,7 @@ const CONFIG = {
 const client = bedrock.createClient(CONFIG);
 
 // ===== ПОДІЇ =====
-client.on("join", () => console.log(`✅ Бот ${CONFIG.username} на сервері!`));
+client.on("join", () => console.log(`✅ Бот ${CONFIG.username} зайшов на сервер!`));
 client.on("spawn", () => console.log("🌍 Бот заспавнився"));
 
 client.on("disconnect", (packet) => {
@@ -21,29 +23,26 @@ client.on("disconnect", (packet) => {
 
 client.on("error", (err) => {
   if (err.message?.includes('timeout')) return;
-  console.error("⚠️ Помилка:", err.message);
 });
 
-// ===== ЧАТ =====
+// ===== ОБРОБНИК ЧАТУ =====
 client.on("text", async (packet) => {
-  // Фільтруємо системні пакети
-  if (['json', 'system', 'popup', 'jukebox_popup'].includes(packet.type)) return;
+  // Фільтруємо сміття
+  if (['json', 'system', 'popup'].includes(packet.type)) return;
 
   let sender = packet.source_name;
   let message = packet.message;
 
-  // Розбираємо translation-пакет (стандарт для серверів)
+  // Обробка для Aternos
   if (packet.type === 'translation' && Array.isArray(packet.parameters) && packet.parameters.length >= 2) {
     sender = packet.parameters[0];
     message = packet.parameters[1];
   }
 
-  // Ігноруємо себе та пусті повідомлення
-  if (!sender || sender === client.username || !message) return;
+  // Ігноруємо себе, сервер та пусті повідомлення
+  if (!sender || sender === client.username || !message || sender === "Server") return;
 
-  // Чистимо вхідне повідомлення від кодів кольорів (§)
   const cleanMsg = String(message).replace(/§./g, '').trim();
-
   console.log(`💬 [${sender}]: ${cleanMsg}`);
 
   // Команда !ai
@@ -53,48 +52,46 @@ client.on("text", async (packet) => {
 
   console.log(`⏳ Думаю...`);
 
-  // Запит до AI
   const response = await queryGemini(prompt, sender);
 
-  // Затримка 2с перед відправкою (анти-спам)
-  setTimeout(() => sendChatMessage(response), 2000);
+  // Затримка 2с і відправка через КОМАНДУ
+  setTimeout(() => sendCommand(response), 2000);
 });
 
-// ===== ВІДПРАВКА (MAX SECURITY) =====
-function sendChatMessage(text) {
+// ===== ВІДПРАВКА ЧЕРЕЗ COMMAND REQUEST (Найбезпечніший метод) =====
+function sendCommand(text) {
   if (!text) return;
 
-  // 1. Прибираємо Markdown
+  // Чистка тексту від емоджі та символів, що ламають команди
   let safeText = String(text)
-    .replace(/\*\*/g, "")
-    .replace(/\*/g, "")
-    .replace(/`/g, "")
-    .replace(/\n/g, " ");
+    .replace(/[^\p{L}\p{N}\p{P}\p{Z}]/gu, "") // Видаляємо емоджі
+    .replace(/["\\]/g, "") // Видаляємо лапки та слеші, щоб не зламати команду
+    .trim()
+    .substring(0, 150); // Коротше повідомлення для команди
 
-  // 2. ЖОРСТКИЙ ФІЛЬТР: Залишаємо тільки букви (всіх мов), цифри, пробіли і знаки пунктуації.
-  // Цей RegEx видалить всі емоджі та спецсимволи.
-  safeText = safeText.replace(/[^\p{L}\p{N}\p{P}\p{Z}]/gu, "");
-
-  // 3. Обрізаємо
-  safeText = safeText.trim().substring(0, 200);
-
-  console.log(`📤 Відправляю: ${safeText}`);
+  console.log(`📤 Відправляю команду /me: ${safeText}`);
 
   try {
-    client.queue("text", {
-      type: "chat",
-      needs_translation: false,
-      source_name: client.username, // Обов'язково нік бота
-      xuid: "",                     // ПУСТИЙ РЯДОК (згідно документації для offline ботів)
-      platform_chat_id: "",
-      message: safeText
+    // Використовуємо /me, бо вона працює без адмінки
+    // Якщо хочеш /say, зміни рядок нижче на: const cmd = `/say ${safeText}`;
+    const cmd = `/me ${safeText}`;
+
+    client.queue('command_request', {
+      command: cmd,
+      origin: {
+        type: 0,         // 0 = PLAYER (Тип "S" або 5 - це Automation, краще юзати 0)
+        uuid: uuidv4(),  // Унікальний ID сутності
+        request_id: uuidv4(), // Унікальний ID запиту
+      },
+      internal: false,
+      version: 52        // Версія протоколу команд (стандартна)
     });
   } catch (e) {
-    console.error("❌ Помилка черги:", e.message);
+    console.error("❌ Помилка команди:", e.message);
   }
 }
 
-// ===== AI ЗАПИТ =====
+// ===== GEMINI API =====
 async function queryGemini(prompt, username) {
   const API_KEY = process.env.GOOGLE_API_KEY;
   if (!API_KEY) return "Немає ключа";
@@ -105,14 +102,11 @@ async function queryGemini(prompt, username) {
     const res = await axios.post(url, {
       contents: [{
         parts: [{
-          // СУВОРА ІНСТРУКЦІЯ
-          text: `Ти гравець Minecraft (нік ${CONFIG.username}).
+          text: `Ти гравець у Minecraft.
           Правила:
-          1. Тільки текст. НІЯКИХ ЕМОДЖІ ❌. НІЯКИХ СМАЙЛИКІВ ❌.
-          2. Без форматування (жирний, курсив - заборонено).
-          3. Мова: Українська.
-          4. Довжина: Максимум 1 коротке речення.
-          
+          1. СУВОРО БЕЗ ЕМОДЖІ!
+          2. Українська мова.
+          3. Дуже коротко (1 речення).
           Питання від ${username}: ${prompt}`
         }]
       }]
